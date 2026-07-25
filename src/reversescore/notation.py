@@ -86,9 +86,35 @@ def _is_excluded(label: str, config: PipelineConfig) -> bool:
 
 
 def load_midi(path: Path) -> stream.Score:
-    """Load a MIDI file into a music21 Score."""
+    """Load a MIDI file into a music21 Score.
+
+    Some transcription tools (e.g. basic-pitch with ``multiple_pitch_bends=True``)
+    write many tiny tracks for a single instrument. If we detect an unusually
+    large number of parts, merge them into one part so the final score does not
+    explode into dozens of staves.
+    """
     logger.debug("Loading MIDI: %s", path)
-    return converter.parse(str(path))
+    score = converter.parse(str(path))
+    if len(score.parts) <= 1:
+        return score
+
+    logger.debug("MIDI has %d parts; merging into one", len(score.parts))
+    merged = stream.Part()
+    for part in score.parts:
+        if merged.getInstrument(returnDefault=None) is None:
+            inst = part.getInstrument(returnDefault=None)
+            if inst is not None:
+                merged.insert(0, inst)
+        if not list(merged.flatten().getElementsByClass("Clef")):
+            clefs = list(part.flatten().getElementsByClass("Clef"))
+            if clefs:
+                merged.insert(0, clefs[0])
+        for el in part.flatten().notesAndRests:
+            merged.insert(el.offset, el)
+
+    merged_score = stream.Score()
+    merged_score.insert(0, merged)
+    return merged_score
 
 
 def set_time_signature(score: stream.Score, time_signature: str) -> stream.Score:

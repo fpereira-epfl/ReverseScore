@@ -10,6 +10,7 @@ from reversescore.notation import (
     assign_instrument,
     build_score,
     export_score,
+    load_midi,
     quantize_score,
     set_time_signature,
     split_bandoneon_part,
@@ -161,3 +162,17 @@ def test_build_score_handles_complex_durations(tmp_path: Path) -> None:
     musicxml_path = tmp_path / "out" / "complex.musicxml"
     export_score(built, musicxml_path, fmt="musicxml")
     assert musicxml_path.exists()
+
+
+def test_load_midi_merges_multi_track_files(tmp_path: Path) -> None:
+    # Simulate a basic-pitch-style MIDI with many tiny tracks.
+    score = stream.Score()
+    for _ in range(5):
+        part = stream.Part()
+        part.append(note.Note("C4", quarterLength=1))
+        score.insert(0, part)
+    path = tmp_path / "multi.mid"
+    score.write("midi", fp=str(path))
+
+    loaded = load_midi(path)
+    assert len(loaded.parts) == 1

@@ -96,7 +96,7 @@ def transcribe_stem(
                 minimum_note_length=config.min_note_length_ms,
                 minimum_frequency=None,
                 maximum_frequency=None,
-                multiple_pitch_bends=True,
+                multiple_pitch_bends=False,
                 melodia_trick=True,
             )
     except Exception as exc:

@@ -53,13 +53,13 @@ def transcribe(
     model: Annotated[str, typer.Option("--demucs-model", help="demucs model name.")] = "htdemucs",
     split_bandoneon: Annotated[bool, typer.Option("--split-bandoneon", "--no-split-bandoneon", help="Split bandoneon into treble/bass staves.")] = True,
     overwrite: Annotated[bool, typer.Option("--overwrite", help="Overwrite existing intermediate files.")] = False,
-    bandoneon: Annotated[Optional[bool], typer.Option("--bandoneon", "--no-bandoneon", help="Hint that bandoneon is present/absent.")] = None,
-    violin: Annotated[Optional[bool], typer.Option("--violin", "--no-violin", help="Hint that violin is present/absent.")] = None,
-    piano: Annotated[Optional[bool], typer.Option("--piano", "--no-piano", help="Hint that piano is present/absent.")] = None,
-    voice: Annotated[Optional[bool], typer.Option("--voice", "--no-voice", help="Hint that voice is present/absent.")] = None,
-    bass: Annotated[Optional[bool], typer.Option("--bass", "--no-bass", help="Hint that bass is present/absent.")] = None,
-    drums: Annotated[Optional[bool], typer.Option("--drums", "--no-drums", help="Hint that drums are present/absent.")] = None,
-    guitar: Annotated[Optional[bool], typer.Option("--guitar", "--no-guitar", help="Hint that guitar is present/absent.")] = None,
+    bandoneon: Annotated[bool, typer.Option("--bandoneon/--no-bandoneon", help="Hint that bandoneon is present/absent.")] = False,
+    violin: Annotated[bool, typer.Option("--violin/--no-violin", help="Hint that violin is present/absent.")] = False,
+    piano: Annotated[bool, typer.Option("--piano/--no-piano", help="Hint that piano is present/absent.")] = False,
+    voice: Annotated[bool, typer.Option("--voice/--no-voice", help="Hint that voice is present/absent.")] = False,
+    bass: Annotated[bool, typer.Option("--bass/--no-bass", help="Hint that bass is present/absent.")] = False,
+    drums: Annotated[bool, typer.Option("--drums/--no-drums", help="Hint that drums are present/absent.")] = False,
+    guitar: Annotated[bool, typer.Option("--guitar/--no-guitar", help="Hint that guitar is present/absent.")] = False,
 ) -> None:
     """Run the full audio-to-score pipeline on a single audio file.
 
