@@ -59,6 +59,7 @@ def transcribe(
     voice: Annotated[Optional[bool], typer.Option("--voice", "--no-voice", help="Hint that voice is present/absent.")] = None,
     bass: Annotated[Optional[bool], typer.Option("--bass", "--no-bass", help="Hint that bass is present/absent.")] = None,
     drums: Annotated[Optional[bool], typer.Option("--drums", "--no-drums", help="Hint that drums are present/absent.")] = None,
+    guitar: Annotated[Optional[bool], typer.Option("--guitar", "--no-guitar", help="Hint that guitar is present/absent.")] = None,
 ) -> None:
     """Run the full audio-to-score pipeline on a single audio file.
 
@@ -83,6 +84,7 @@ def transcribe(
         ("voice", voice),
         ("bass", bass),
         ("drums", drums),
+        ("guitar", guitar),
     ):
         if value is True:
             hints.append(name)

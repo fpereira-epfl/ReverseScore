@@ -4,7 +4,8 @@ reversescore transcribe data/wav/angelica_bjbn5mice4k.wav \
   --violin \
   --piano \
   --bass \
-  --no-voice \
+  --voice \
+  --no-guitar \
   --no-drums \
   --time-signature 3/4 \
   --grid 4

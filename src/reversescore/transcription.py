@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import logging
+import warnings
 from pathlib import Path
 from typing import Any, Callable
 
@@ -56,22 +59,57 @@ def transcribe_stem(
 
     logger.info("Transcribing %s -> %s", audio_path, midi_path)
     model_path, predict_and_save = _basic_pitch_imports()
-    predict_and_save(
-        [str(audio_path)],
-        output_directory=str(output_dir),
-        save_midi=True,
-        sonify_midi=False,
-        save_model_outputs=False,
-        save_notes=False,
-        model_or_model_path=model_path,
-        onset_threshold=config.onset_threshold,
-        frame_threshold=config.frame_threshold,
-        minimum_note_length=config.min_note_length_ms,
-        minimum_frequency=None,
-        maximum_frequency=None,
-        multiple_pitch_bends=True,
-        melodia_trick=True,
-    )
+
+    # basic-pitch and coremltools emit a lot of noise (debug prints about
+    # tensor shapes, backend availability warnings, version warnings). Capture
+    # stdout/stderr and ignore warnings during inference; only surface them if
+    # transcription actually fails.
+    bp_out = io.StringIO()
+    bp_err = io.StringIO()
+    # basic-pitch and coremltools log their optional-backend/version warnings
+    # through Python logging; temporarily raise their level to ERROR.
+    noisy_loggers = [
+        logging.getLogger(name)
+        for name in ("basic_pitch", "coremltools", "basic_pitch.inference")
+    ]
+    old_levels = [(lg, lg.level) for lg in noisy_loggers]
+    for lg, _ in old_levels:
+        lg.setLevel(logging.ERROR)
+
+    try:
+        with (
+            contextlib.redirect_stdout(bp_out),
+            contextlib.redirect_stderr(bp_err),
+            warnings.catch_warnings(),
+        ):
+            warnings.simplefilter("ignore")
+            predict_and_save(
+                [str(audio_path)],
+                output_directory=str(output_dir),
+                save_midi=True,
+                sonify_midi=False,
+                save_model_outputs=False,
+                save_notes=False,
+                model_or_model_path=model_path,
+                onset_threshold=config.onset_threshold,
+                frame_threshold=config.frame_threshold,
+                minimum_note_length=config.min_note_length_ms,
+                minimum_frequency=None,
+                maximum_frequency=None,
+                multiple_pitch_bends=True,
+                melodia_trick=True,
+            )
+    except Exception as exc:
+        err_text = bp_err.getvalue().strip()
+        out_text = bp_out.getvalue().strip()
+        if err_text:
+            logger.error("basic-pitch stderr:\n%s", err_text)
+        if out_text:
+            logger.error("basic-pitch stdout:\n%s", out_text)
+        raise RuntimeError(f"basic-pitch failed for {audio_path}") from exc
+    finally:
+        for lg, level in old_levels:
+            lg.setLevel(level)
 
     # basic-pitch names the output based on the input filename and appends
     # "_basic_pitch" before the extension.

@@ -33,6 +33,15 @@ def test_config_validates_thresholds(isolated_config: None) -> None:
         PipelineConfig(onset_threshold=1.5)
 
 
+def test_config_accepts_guitar_hint(isolated_config: None) -> None:
+    config = PipelineConfig(
+        instrument_hints=["guitar"],
+        instrument_exclusions=["drums"],
+    )
+    assert config.is_instrument_excluded("drums")
+    assert not config.is_instrument_excluded("guitar")
+
+
 def test_config_resolves_paths(isolated_config: None, tmp_path: Path) -> None:
     config = PipelineConfig(
         output_dir=tmp_path / "foo",

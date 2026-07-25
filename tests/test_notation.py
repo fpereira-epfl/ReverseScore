@@ -5,6 +5,8 @@ from pathlib import Path
 from music21 import note, stream
 from reversescore.config import PipelineConfig
 from reversescore.notation import (
+    _rebuild_parts,
+    _simplify_durations,
     assign_instrument,
     build_score,
     export_score,
@@ -59,7 +61,7 @@ def test_assign_instrument_with_hints() -> None:
 
 def test_build_score_skips_excluded_stems(tmp_path: Path) -> None:
     midi_paths: dict[str, Path] = {}
-    for label in ("drums", "bass"):
+    for label in ("drums", "bass", "guitar"):
         score = stream.Score()
         part = stream.Part()
         part.append(note.Note("C4", quarterLength=4))
@@ -70,7 +72,7 @@ def test_build_score_skips_excluded_stems(tmp_path: Path) -> None:
 
     config = PipelineConfig(
         output_dir=tmp_path / "out",
-        instrument_exclusions=["drums"],
+        instrument_exclusions=["drums", "guitar"],
         split_bandoneon=False,
     )
     score = build_score(midi_paths, config, title="Test")
@@ -110,4 +112,52 @@ def test_build_score_and_export(tmp_path: Path) -> None:
 
     musicxml_path = tmp_path / "out" / "test.musicxml"
     export_score(score, musicxml_path, fmt="musicxml")
+    assert musicxml_path.exists()
+
+
+def test_simplify_complex_durations() -> None:
+    part = stream.Part()
+    m = stream.Measure(number=1)
+    m.insert(0, note.Note("C4", quarterLength=2.5))
+    part.append(m)
+    score = stream.Score()
+    score.insert(0, part)
+
+    score = _simplify_durations(score)
+    notes = list(score.parts[0].recurse().notes)
+    assert len(notes) == 2
+    assert notes[0].duration.type == "half"
+    assert notes[1].duration.type == "eighth"
+
+
+def test_rebuild_parts_avoids_export_crash(tmp_path: Path) -> None:
+    # A part with gaps and a complex duration would previously crash MusicXML
+    # export with makeNotation=True due to duplicate measures.
+    part = stream.Part()
+    part.insert(0, note.Note("C4", quarterLength=1.5))
+    part.insert(2, note.Note("D4", quarterLength=2.5))
+    part.insert(5, note.Note("E4", quarterLength=0.5))
+    score = stream.Score()
+    score.insert(0, part)
+
+    score = _rebuild_parts(score, "4/4")
+    musicxml_path = tmp_path / "rebuild.musicxml"
+    export_score(score, musicxml_path, fmt="musicxml")
+    assert musicxml_path.exists()
+
+
+def test_build_score_handles_complex_durations(tmp_path: Path) -> None:
+    score = stream.Score()
+    part = stream.Part()
+    part.append(note.Note("C4", quarterLength=2.5))
+    score.insert(0, part)
+    path = tmp_path / "complex.mid"
+    score.write("midi", fp=str(path))
+
+    config = PipelineConfig(output_dir=tmp_path / "out", split_bandoneon=False)
+    built = build_score({"bass": path}, config)
+    assert len(built.parts) == 1
+
+    musicxml_path = tmp_path / "out" / "complex.musicxml"
+    export_score(built, musicxml_path, fmt="musicxml")
     assert musicxml_path.exists()

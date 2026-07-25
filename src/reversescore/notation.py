@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import logging
 from pathlib import Path
 
@@ -154,6 +156,89 @@ def strip_pitch_bends(score: stream.Score) -> stream.Score:
     return score
 
 
+def _simplify_durations(score: stream.Score) -> stream.Score:
+    """Replace notes/rests with complex durations with expressible simple values.
+
+    MusicXML cannot represent arbitrary fractional durations (e.g. 2.5 beats)
+    as a single note type. music21 marks those as ``type='complex'`` and will
+    raise ``MusicXMLExportException``. We split them into standard durations
+    (tied for pitched notes) before export.
+    """
+    for el in list(score.recurse().notesAndRests):
+        if el.duration.type != "complex":
+            continue
+        split = el.splitAtDurations()
+        if not split:
+            continue
+        parent = el.activeSite
+        if parent is None:
+            continue
+        offset = el.offset
+        parent.remove(el)
+        running_offset = offset
+        if el.isNote:
+            for i, piece in enumerate(split):
+                if i == 0:
+                    piece.tie = music21.tie.Tie("start")
+                elif i == len(split) - 1:
+                    piece.tie = music21.tie.Tie("stop")
+                else:
+                    piece.tie = music21.tie.Tie("continue")
+                piece.articulations = list(el.articulations)
+                piece.expressions = list(el.expressions)
+        for piece in split:
+            parent.insert(running_offset, piece)
+            running_offset += piece.duration.quarterLength
+    return score
+
+
+def _rebuild_parts(score: stream.Score, time_signature: str) -> stream.Score:
+    """Flatten every part and rebuild measures cleanly.
+
+    MIDI import can leave overlapping measures, implicit voices, or gaps that
+    trigger ``StreamException`` or ``MusicXMLExportException`` during export.
+    Rebuilding from a flat note/rest stream with an explicit meter avoids those
+    pathologies.
+    """
+    ts = meter.TimeSignature(time_signature)
+    new_score = stream.Score()
+
+    for md in score.getElementsByClass("Metadata"):
+        new_score.insert(0, md)
+
+    for part in score.parts:
+        new_part = stream.Part()
+        new_part.partName = part.partName
+        new_part.partAbbreviation = part.partAbbreviation
+
+        # Preserve the original instrument and clef when possible.
+        inst = part.getInstrument(returnDefault=None)
+        if inst is not None:
+            new_part.insert(0, inst)
+        clefs = list(part.flatten().getElementsByClass("Clef"))
+        if clefs:
+            new_part.insert(0, clefs[0])
+        else:
+            new_part.insert(0, music21.clef.TrebleClef())
+        new_part.insert(0, ts)
+
+        # Copy only notes and rests, preserving offset, duration, and articulations.
+        for el in part.flatten().notesAndRests:
+            if el.isNote:
+                new_el = note.Note(el.pitch, quarterLength=el.duration.quarterLength)
+                new_el.articulations = list(el.articulations)
+                new_el.expressions = list(el.expressions)
+            else:
+                new_el = note.Rest(quarterLength=el.duration.quarterLength)
+            new_part.insert(el.offset, new_el)
+
+        new_part.makeMeasures(inPlace=True)
+        new_part.makeTies(inPlace=True)
+        new_score.insert(0, new_part)
+
+    return new_score
+
+
 def assign_instrument(part: stream.Part, label: str, config: PipelineConfig) -> stream.Part:
     """Set a sensible instrument/clef for a part based on its stem label and hints."""
     instrument_name = _resolve_stem_instrument(label, config)
@@ -302,16 +387,29 @@ def export_score(
     """
     ensure_dirs(output_path.parent)
     logger.info("Exporting %s score to %s", fmt, output_path)
+
+    # With many parts (6 stems + bandoneon split) music21 writes a flood of
+    # "we are out of midi channels! help!" messages directly to stderr via
+    # environLocal.warn(). They are harmless for notation export; capture and
+    # discard them, surfacing the text only if export actually fails.
+    write_err = io.StringIO()
     try:
-        written = score.write(fmt=fmt, fp=str(output_path))
+        with contextlib.redirect_stderr(write_err):
+            try:
+                written = score.write(fmt=fmt, fp=str(output_path))
+            except Exception:
+                if fmt != "musicxml":
+                    raise
+                logger.warning(
+                    "Standard MusicXML export failed (often a meter/voice mismatch). "
+                    "Retrying with makeNotation=False. The file may need manual cleanup."
+                )
+                written = score.write(fmt=fmt, fp=str(output_path), makeNotation=False)
     except Exception:
-        if fmt != "musicxml":
-            raise
-        logger.warning(
-            "Standard MusicXML export failed (often a meter/voice mismatch). "
-            "Retrying with makeNotation=False. The file may need manual cleanup."
-        )
-        written = score.write(fmt=fmt, fp=str(output_path), makeNotation=False)
+        err_text = write_err.getvalue().strip()
+        if err_text:
+            logger.error("MusicXML/MIDI export stderr:\n%s", err_text)
+        raise
     return Path(written)
 
 
@@ -327,4 +425,9 @@ def build_score(
         split_bandoneon = config.split_bandoneon
     if split_bandoneon:
         score = split_bandoneon_part(score)
+
+    # Final cleanup so MusicXML export cannot choke on complex durations or
+    # messy measure structures imported from MIDI.
+    score = _simplify_durations(score)
+    score = _rebuild_parts(score, config.time_signature)
     return score

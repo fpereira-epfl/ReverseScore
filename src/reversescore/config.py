@@ -10,8 +10,8 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 from pydantic_settings.sources import YamlConfigSettingsSource
 
 # Instruments the pipeline knows how to label in the score.
-KNOWN_INSTRUMENTS = frozenset({"bandoneon", "violin", "piano", "voice", "bass", "drums"})
-InstrumentName = Literal["bandoneon", "violin", "piano", "voice", "bass", "drums"]
+KNOWN_INSTRUMENTS = frozenset({"bandoneon", "violin", "piano", "voice", "bass", "drums", "guitar"})
+InstrumentName = Literal["bandoneon", "violin", "piano", "voice", "bass", "drums", "guitar"]
 
 
 class PipelineConfig(BaseSettings):
