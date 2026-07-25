@@ -62,14 +62,14 @@ The `reversescore` CLI works even when the virtual environment is not activated 
 ### Full pipeline
 
 ```bash
-reversescore transcribe path/to/tango.wav -o ./out --time-signature 4/4
+reversescore transcribe data/wav/angelica_bjbn5mice4k.wav --time-signature 4/4
 ```
 
-The command produces:
+By default the command organizes outputs under `./data/trans/<song>/`:
 
-- `./out/stems/` — isolated audio stems
-- `./out/midi/` — one MIDI file per stem
-- `./out/scores/` — final `tango.musicxml` and `tango.mid`
+- `./data/trans/angelica_bjbn5mice4k/stems/` — isolated audio stems
+- `./data/trans/angelica_bjbn5mice4k/midi/` — one MIDI file per stem
+- `./data/trans/angelica_bjbn5mice4k/scores/` — final `.musicxml` and `.mid`
 
 ### CLI options
 
@@ -81,7 +81,7 @@ Key options:
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-o, --output-dir` | Output directory | `./out` |
+| `-o, --output-dir` | Output directory | `./data/trans/<song>/` |
 | `-t, --time-signature` | Expected meter | `4/4` |
 | `-g, --grid` | Quantization grid (4 = 16ths) | `4` |
 | `--onset` | basic-pitch onset threshold | `0.5` |
@@ -89,6 +89,37 @@ Key options:
 | `--demucs-model` | demucs model name | `htdemucs` |
 | `--split-bandoneon / --no-split-bandoneon` | Split bandoneon part | `True` |
 | `--overwrite` | Re-run intermediate steps | `False` |
+| `--bandoneon / --no-bandoneon` | Hint bandoneon presence/absence | inferred |
+| `--violin / --no-violin` | Hint violin presence/absence | inferred |
+| `--piano / --no-piano` | Hint piano presence/absence | inferred |
+| `--voice / --no-voice` | Hint voice presence/absence | inferred |
+| `--bass / --no-bass` | Hint bass presence/absence | inferred |
+| `--drums / --no-drums` | Hint drums presence/absence | inferred |
+
+### Convert m4a/mp3/etc. to WAV
+
+If your source files are not WAV, use ffmpeg to convert them first:
+
+```bash
+# Convert a single file
+reversescore convert-to-wav data/m4a/angelica_BJBn5MICe4k.m4a
+
+# Or convert every supported file in the configured input_dir
+reversescore convert-to-wav
+```
+
+The default output is `./data/wav/` (configurable via `wav_output_dir`). Then transcribe the WAV:
+
+```bash
+reversescore transcribe ./data/wav/angelica_bjbn5mice4k.wav --time-signature 4/4
+```
+
+With instrument hints (e.g. a typical tango orquesta with no singer or drums):
+
+```bash
+reversescore transcribe ./data/wav/angelica_bjbn5mice4k.wav \
+    --bandoneon --violin --piano --bass --no-voice --no-drums
+```
 
 ### Run individual steps
 
@@ -104,6 +135,41 @@ Transcribe existing stems:
 reversescore stems-to-midi ./out/stems/tango/htdemucs/ -o ./out
 ```
 
+## Configuration (`config.yaml`)
+
+Create a `config.yaml` in the working directory to set defaults:
+
+```yaml
+# Directory containing input audio files (e.g. m4a, mp3, flac).
+input_dir: ./data/m4a
+
+# Directory for all pipeline outputs (stems, MIDI, scores).
+output_dir: ./out
+
+# Directory where ffmpeg-converted WAV files are written.
+wav_output_dir: ./data/wav
+
+# Path or command name for the ffmpeg executable.
+ffmpeg_path: ffmpeg
+
+# demucs model to use for source separation.
+# Use htdemucs_6s to also separate piano from the "other" stem.
+demucs_model: htdemucs
+
+# Expected time signature for the score.
+time_signature: "4/4"
+
+# Quantization grid denominator (4 = 16th notes).
+quantization_grid: 4
+
+# Instrument hints help label staves correctly and skip excluded stems.
+# Valid values: bandoneon, violin, piano, voice, bass, drums.
+instrument_hints: []
+instrument_exclusions: []
+```
+
+Override precedence: CLI flags > environment variables (`REVERSESCORE_*`) > `config.yaml` > `.env` > defaults.
+
 ## Project Structure
 
 ```
@@ -111,7 +177,8 @@ ReverseScore/
 ├── src/reversescore/
 │   ├── __init__.py
 │   ├── cli.py              # Typer + Rich CLI
-│   ├── config.py           # Pydantic settings
+│   ├── config.py           # Pydantic settings (loads config.yaml)
+│   ├── conversion.py       # ffmpeg m4a/mp3 -> WAV
 │   ├── separation.py       # demucs wrapper
 │   ├── transcription.py    # basic-pitch wrapper
 │   ├── notation.py         # music21 quantization & export
@@ -120,9 +187,11 @@ ReverseScore/
 ├── tests/
 │   ├── __init__.py
 │   ├── test_config.py
+│   ├── test_conversion.py
 │   ├── test_notation.py
 │   ├── test_separation.py
 │   └── test_transcription.py
+├── config.yaml             # User-editable defaults
 ├── pyproject.toml
 └── README.md
 ```

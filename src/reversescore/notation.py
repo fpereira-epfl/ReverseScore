@@ -14,41 +14,73 @@ from .utils import ensure_dirs
 logger = logging.getLogger(__name__)
 
 
-def _bandoneon_instrument() -> instrument.Instrument:
-    """Return a music21 Instrument named Bandoneon.
+def _instrument(name: str) -> instrument.Instrument:
+    """Return a music21 Instrument for a known instrument name."""
+    if name == "bandoneon":
+        return instrument.Instrument(
+            instrumentName="Bandoneon",
+            instrumentAbbreviation="Band.",
+            midiProgram=21,  # Accordion is the closest General MIDI match.
+        )
+    mapping: dict[str, instrument.Instrument] = {
+        "violin": instrument.Violin(),
+        "piano": instrument.Piano(),
+        "voice": instrument.Vocalist(),
+        "bass": instrument.Contrabass(),
+        "drums": instrument.Percussion(),
+        "guitar": instrument.Guitar(),
+    }
+    return mapping.get(name, _instrument("bandoneon"))
 
-    music21 does not provide a dedicated Bandoneon class, so we build one from
-    the generic ``Instrument`` base and set the part name.
+
+def _clef_for(name: str) -> music21.clef.Clef:
+    """Return a sensible clef for an instrument name."""
+    name_lower = name.lower()
+    if name_lower in {"bass", "bandoneon_bass"}:
+        return music21.clef.BassClef()
+    if name_lower == "drums":
+        return music21.clef.PercussionClef()
+    return music21.clef.TrebleClef()
+
+
+def _resolve_stem_instrument(label: str, config: PipelineConfig) -> str:
+    """Map a demucs stem label to an instrument name using user hints.
+
+    The ``other``/``bandoneon_violin`` stem is ambiguous. If the user hints
+    contain exactly one of {bandoneon, violin}, we label it that instrument.
+    Otherwise we keep a combined label.
     """
-    return instrument.Instrument(
-        instrumentName="Bandoneon",
-        instrumentAbbreviation="Band.",
-        midiProgram=21,  # Accordion sound is the closest General MIDI match.
-    )
+    direct_map: dict[str, str] = {
+        "drums": "drums",
+        "bass": "bass",
+        "voice": "voice",
+        "piano": "piano",
+        "guitar": "guitar",
+    }
+    if label in direct_map:
+        return direct_map[label]
+
+    # Combined melodic stem from htdemucs.
+    hints = set(config.instrument_hints)
+    if label in {"bandoneon_violin", "other", "bandoneon_piano_violin"}:
+        candidates = hints & {"bandoneon", "violin", "piano", "guitar"}
+        if len(candidates) == 1:
+            return candidates.pop()
+        if "bandoneon" in hints and "violin" not in hints and "piano" not in hints:
+            return "bandoneon"
+        if "violin" in hints and "bandoneon" not in hints and "piano" not in hints:
+            return "violin"
+        if "piano" in hints and "bandoneon" not in hints and "violin" not in hints:
+            return "piano"
+        return "bandoneon_violin"
+
+    return label
 
 
-# Instrument assignment for tango stem labels.
-STEM_INSTRUMENTS: dict[str, instrument.Instrument] = {
-    "bandoneon_piano_violin": _bandoneon_instrument(),
-    "bandoneon": _bandoneon_instrument(),
-    "piano": instrument.Piano(),
-    "violin": instrument.Violin(),
-    "bass": instrument.Contrabass(),
-    "vocals": instrument.Vocalist(),
-    "drums": instrument.Percussion(),
-    "other": _bandoneon_instrument(),
-}
-
-# Default clef hints per stem label.
-CLEF_HINTS: dict[str, str] = {
-    "bass": "bass",
-    "bandoneon_piano_violin": "treble",
-    "bandoneon": "treble",
-    "piano": "treble",
-    "violin": "treble",
-    "vocals": "treble",
-    "drums": "percussion",
-}
+def _is_excluded(label: str, config: PipelineConfig) -> bool:
+    """Return True if the resolved instrument for a stem is excluded."""
+    resolved = _resolve_stem_instrument(label, config)
+    return config.is_instrument_excluded(resolved)  # type: ignore[arg-type]
 
 
 def load_midi(path: Path) -> stream.Score:
@@ -122,16 +154,12 @@ def strip_pitch_bends(score: stream.Score) -> stream.Score:
     return score
 
 
-def assign_instrument(part: stream.Part, label: str) -> stream.Part:
-    """Set a sensible instrument/clef for a part based on its stem label."""
-    inst = STEM_INSTRUMENTS.get(label, _bandoneon_instrument())
+def assign_instrument(part: stream.Part, label: str, config: PipelineConfig) -> stream.Part:
+    """Set a sensible instrument/clef for a part based on its stem label and hints."""
+    instrument_name = _resolve_stem_instrument(label, config)
+    inst = _instrument(instrument_name)
     part.insert(0, inst)
-    clef_name = CLEF_HINTS.get(label, "treble")
-    try:
-        clef_obj = music21.clef.clefFromString(clef_name)
-    except Exception:  # pragma: no cover - defensive fallback
-        clef_obj = music21.clef.TrebleClef()
-    part.insert(0, clef_obj)
+    part.insert(0, _clef_for(instrument_name))
     return part
 
 
@@ -169,12 +197,16 @@ def merge_stem_midis(
         score.insert(0, music21.metadata.Metadata(title=title))
 
     for label, midi_path in midi_paths.items():
+        if _is_excluded(label, config):
+            logger.info("Skipping excluded stem: %s", label)
+            continue
         stem_score = load_midi(midi_path)
         for part in stem_score.parts:
-            assign_instrument(part, label)
-            # Tag the part with the stem label for easier cleanup.
-            part.partAbbreviation = label[:8]
-            if label in ("bass", "drums"):
+            assign_instrument(part, label, config)
+            # Tag the part with the resolved instrument for easier cleanup.
+            resolved = _resolve_stem_instrument(label, config)
+            part.partAbbreviation = resolved[:8]
+            if resolved in ("bass", "drums"):
                 add_marcato_accents(part)
             score.insert(0, part)
 
@@ -204,21 +236,22 @@ def split_bandoneon_part(score: stream.Score) -> stream.Score:
     B3 = music21.pitch.Pitch("B3")
     new_score = stream.Score()
 
+    combined_labels = {"bandone", "bandoneon", "bandoneon_violin", "bandoneon_piano_violin"}
     for part in score.parts:
-        if part.partAbbreviation not in ("bandone", "bandoneon", "bandoneon_piano_violin"):
+        if part.partAbbreviation not in combined_labels:
             new_score.insert(0, part)
             continue
 
         treble_part = stream.Part()
         treble_part.id = f"{part.id}_treble"
         treble_part.partAbbreviation = "band_tre"
-        treble_part.insert(0, _bandoneon_instrument())
+        treble_part.insert(0, _instrument("bandoneon"))
         treble_part.insert(0, music21.clef.TrebleClef())
 
         bass_part = stream.Part()
         bass_part.id = f"{part.id}_bass"
         bass_part.partAbbreviation = "band_bas"
-        bass_part.insert(0, _bandoneon_instrument())
+        bass_part.insert(0, _instrument("bandoneon"))
         bass_part.insert(0, music21.clef.BassClef())
 
         for measure in part.getElementsByClass("Measure"):
@@ -263,10 +296,22 @@ def export_score(
 
     Returns:
         Path to the exported file.
+
+    Raises:
+        Exception: Re-raised if both standard and fallback export attempts fail.
     """
     ensure_dirs(output_path.parent)
     logger.info("Exporting %s score to %s", fmt, output_path)
-    written = score.write(fmt=fmt, fp=str(output_path))
+    try:
+        written = score.write(fmt=fmt, fp=str(output_path))
+    except Exception:
+        if fmt != "musicxml":
+            raise
+        logger.warning(
+            "Standard MusicXML export failed (often a meter/voice mismatch). "
+            "Retrying with makeNotation=False. The file may need manual cleanup."
+        )
+        written = score.write(fmt=fmt, fp=str(output_path), makeNotation=False)
     return Path(written)
 
 

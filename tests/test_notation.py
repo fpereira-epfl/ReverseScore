@@ -42,9 +42,40 @@ def test_quantize_score() -> None:
 def test_assign_instrument() -> None:
     part = stream.Part()
     part.append(note.Note("C4"))
-    assign_instrument(part, "bass")
+    config = PipelineConfig()
+    assign_instrument(part, "bass", config)
     instruments = list(part.getElementsByClass("Instrument"))
     assert len(instruments) == 1
+
+
+def test_assign_instrument_with_hints() -> None:
+    part = stream.Part()
+    part.append(note.Note("C4"))
+    config = PipelineConfig(instrument_hints=["violin"])
+    assign_instrument(part, "bandoneon_violin", config)
+    instruments = list(part.getElementsByClass("Instrument"))
+    assert instruments[0].instrumentName == "Violin"
+
+
+def test_build_score_skips_excluded_stems(tmp_path: Path) -> None:
+    midi_paths: dict[str, Path] = {}
+    for label in ("drums", "bass"):
+        score = stream.Score()
+        part = stream.Part()
+        part.append(note.Note("C4", quarterLength=4))
+        score.insert(0, part)
+        path = tmp_path / f"{label}.mid"
+        score.write("midi", fp=str(path))
+        midi_paths[label] = path
+
+    config = PipelineConfig(
+        output_dir=tmp_path / "out",
+        instrument_exclusions=["drums"],
+        split_bandoneon=False,
+    )
+    score = build_score(midi_paths, config, title="Test")
+    assert len(score.parts) == 1
+    assert score.parts[0].partAbbreviation == "bass"
 
 
 def test_split_bandoneon_part(tmp_path: Path) -> None:

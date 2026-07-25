@@ -23,4 +23,4 @@ def test_separate_stems_reuses_existing(tmp_path: Path) -> None:
         mock_run.assert_not_called()
 
     assert "bass" in stems
-    assert "bandoneon_piano_violin" in stems
+    assert "bandoneon_violin" in stems

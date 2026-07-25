@@ -12,12 +12,14 @@ from .utils import ensure_dirs, find_program, run_command, safe_stem_name
 logger = logging.getLogger(__name__)
 
 # Tango-relevant stem names. demucs default htdemucs emits: drums, bass, other, vocals.
-# We map these to more tango-friendly labels where appropriate.
+# htdemucs_6s also emits guitar and piano. We map these to tango-friendly labels.
 TANGO_STEM_MAP: dict[str, str] = {
-    "other": "bandoneon_piano_violin",
-    "vocals": "vocals",
+    "other": "bandoneon_violin",
+    "vocals": "voice",
     "bass": "bass",
     "drums": "drums",
+    "guitar": "guitar",
+    "piano": "piano",
 }
 
 

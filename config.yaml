@@ -1,0 +1,30 @@
+# ReverseScore pipeline configuration.
+# Values here can be overridden by environment variables prefixed with REVERSESCORE_
+# or by CLI flags.
+
+# Directory containing input audio files (e.g. m4a, mp3, flac).
+input_dir: ./data/m4a
+
+# Directory for all pipeline outputs (stems, MIDI, scores).
+output_dir: ./out
+
+# Directory where ffmpeg-converted WAV files are written.
+wav_output_dir: ./data/wav
+
+# Path or command name for the ffmpeg executable.
+ffmpeg_path: ffmpeg
+
+# demucs model to use for source separation.
+# Use htdemucs_6s to also separate piano from the "other" stem.
+demucs_model: htdemucs
+
+# Expected time signature for the score.
+time_signature: "4/4"
+
+# Quantization grid denominator (4 = 16th notes).
+quantization_grid: 4
+
+# Instrument hints help label staves and skip excluded stems.
+# Valid values: bandoneon, violin, piano, voice, bass, drums.
+instrument_hints: []
+instrument_exclusions: []

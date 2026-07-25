@@ -218,3 +218,5 @@ __marimo__/
 .streamlit/secrets.toml
 .opencode
 opencode.sh
+data
+.DS_Store
