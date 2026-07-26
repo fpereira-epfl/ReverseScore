@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from .config import PipelineConfig
 from .utils import ensure_dirs, safe_stem_name
+from .yourmt3_remote import transcribe_stem_yourmt3
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,15 @@ def transcribe_stem(
     config: PipelineConfig,
     label: str | None = None,
     overwrite: bool = False,
+    backend: str | None = None,
 ) -> Path:
-    """Transcribe a single stem audio file to MIDI with basic-pitch.
+    """Transcribe a single stem audio file to MIDI.
+
+    The backend is selected from ``config.transcription_backend`` unless
+    overridden by the ``backend`` argument. Supported backends:
+
+    - ``basic-pitch``: local Spotify basic-pitch model.
+    - ``yourmt3``: remote HuggingFace YourMT3 Space.
 
     Args:
         audio_path: Path to the stem audio file.
@@ -48,6 +56,21 @@ def transcribe_stem(
     audio_path = audio_path.expanduser().resolve()
     if not audio_path.is_file():
         raise FileNotFoundError(f"Stem audio not found: {audio_path}")
+
+    backend = (backend or config.transcription_backend).lower()
+    if backend == "yourmt3":
+        return transcribe_stem_yourmt3(
+            audio_path=audio_path,
+            output_dir=output_dir,
+            config=config,
+            label=label,
+            overwrite=overwrite,
+        )
+    if backend != "basic-pitch":
+        raise ValueError(
+            f"Unsupported transcription backend: {backend!r}. "
+            "Use 'basic-pitch' or 'yourmt3'."
+        )
 
     ensure_dirs(output_dir)
     name = safe_stem_name(label or audio_path.stem)
@@ -125,6 +148,7 @@ def transcribe_stems(
     stems: dict[str, Path],
     config: PipelineConfig,
     overwrite: bool = False,
+    backend: str | None = None,
 ) -> dict[str, Path]:
     """Transcribe each separated stem into its own MIDI file.
 
@@ -132,6 +156,7 @@ def transcribe_stems(
         stems: Mapping from stem label to audio path.
         config: Pipeline configuration.
         overwrite: Re-transcribe existing MIDI files.
+        backend: Optional backend override (defaults to ``config.transcription_backend``).
 
     Returns:
         Mapping from stem label to MIDI path.
@@ -145,6 +170,7 @@ def transcribe_stems(
             config=config,
             label=label,
             overwrite=overwrite,
+            backend=backend,
         )
         results[label] = midi_path
     return results

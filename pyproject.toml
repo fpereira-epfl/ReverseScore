@@ -42,8 +42,12 @@ dependencies = [
     "typer==0.12.3",
     "click>=8.0.0,<8.2",
     "rich==13.7.1",
-    "pydantic==2.8.2",
+    "pydantic>=2.9.2,<3.0.0",
     "pydantic-settings==2.3.4",
+    # Remote transcription backends
+    "gradio_client>=2.0,<3.0",
+    # Song recognition
+    "shazamio>=0.8.0,<1.0",
     # pretty_midi requires pkg_resources, which newer setuptools no longer
     # installs by default. Pin a range that keeps it available.
     "setuptools>=40,<71",

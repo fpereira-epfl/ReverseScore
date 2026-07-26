@@ -13,6 +13,9 @@ from pydantic_settings.sources import YamlConfigSettingsSource
 KNOWN_INSTRUMENTS = frozenset({"bandoneon", "violin", "piano", "voice", "bass", "drums", "guitar"})
 InstrumentName = Literal["bandoneon", "violin", "piano", "voice", "bass", "drums", "guitar"]
 
+# Supported transcription backends.
+TranscriptionBackend = Literal["basic-pitch", "yourmt3"]
+
 
 class PipelineConfig(BaseSettings):
     """Validated configuration for the audio-to-score pipeline.
@@ -128,6 +131,20 @@ class PipelineConfig(BaseSettings):
         return name in self.instrument_exclusions
 
     # Transcription
+    transcription_backend: Literal["basic-pitch", "yourmt3"] = Field(
+        default="basic-pitch",
+        description="Transcription backend to use per stem",
+    )
+    yourmt3_space_id: str = Field(
+        default="mimbres/YourMT3",
+        description="HuggingFace Space ID for the YourMT3 remote backend",
+    )
+    yourmt3_timeout_seconds: int = Field(
+        default=600,
+        ge=10,
+        description="Maximum time to wait for a YourMT3 Space transcription",
+    )
+
     onset_threshold: float = Field(
         default=0.5,
         ge=0.0,

@@ -18,6 +18,18 @@ ffmpeg_path: ffmpeg
 # Use htdemucs_6s to also separate piano from the "other" stem.
 demucs_model: htdemucs
 
+# Transcription backend.
+# Options:
+#   basic-pitch  - local Spotify basic-pitch model (default).
+#   yourmt3      - remote HuggingFace YourMT3 Space (requires network).
+transcription_backend: basic-pitch
+
+# HuggingFace Space used by the yourmt3 backend.
+yourmt3_space_id: mimbres/YourMT3
+
+# Maximum time in seconds to wait for a YourMT3 Space response.
+yourmt3_timeout_seconds: 600
+
 # Expected time signature for the score.
 time_signature: "4/4"
 

@@ -33,6 +33,7 @@ def run_pipeline(
     config: PipelineConfig,
     overwrite_separation: bool = False,
     overwrite_transcription: bool = False,
+    transcription_backend: str | None = None,
 ) -> PipelineResult:
     """Run the full audio-to-score pipeline.
 
@@ -40,7 +41,8 @@ def run_pipeline(
         audio_path: Path to the input audio file.
         config: Pipeline configuration.
         overwrite_separation: Re-run demucs even if stems exist.
-        overwrite_transcription: Re-run basic-pitch even if MIDI exists.
+        overwrite_transcription: Re-run transcription even if MIDI exists.
+        transcription_backend: Optional backend override for transcription.
 
     Returns:
         ``PipelineResult`` with all generated artifact paths and the music21 Score.
@@ -54,7 +56,12 @@ def run_pipeline(
 
     # 2. Transcribe
     logger.info("Step 2/3: transcription")
-    midi_paths = transcribe_stems(stems, config, overwrite=overwrite_transcription)
+    midi_paths = transcribe_stems(
+        stems,
+        config,
+        overwrite=overwrite_transcription,
+        backend=transcription_backend,
+    )
 
     # 3. Notation assembly
     logger.info("Step 3/3: notation assembly")
