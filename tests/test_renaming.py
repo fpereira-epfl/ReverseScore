@@ -3,8 +3,8 @@
 from pathlib import Path
 
 import pytest
-from reversescore.cli import app
-from reversescore.renaming import normalize_special_chars, rename_remove_pattern
+from asp.cli import app
+from asp.renaming import normalize_special_chars, rename_remove_pattern
 from typer.testing import CliRunner
 
 runner = CliRunner()
@@ -121,7 +121,14 @@ def test_cli_rename_dry_run(tmp_path: Path) -> None:
 
     result = runner.invoke(
         app,
-        ["rename", "--folder", str(tmp_path), "--remove-pattern", "-y-su-orquesta-típica", "--dry-run"],
+        [
+            "rename",
+            "--folder",
+            str(tmp_path),
+            "--remove-pattern",
+            "-y-su-orquesta-típica",
+            "--dry-run",
+        ],
     )
 
     assert result.exit_code == 0, result.output
@@ -169,8 +176,10 @@ def test_cli_rename_normalize_special_chars(tmp_path: Path) -> None:
         app,
         [
             "rename",
-            "--folder", str(tmp_path),
-            "--remove-pattern", "-y-su-orquesta-típica",
+            "--folder",
+            str(tmp_path),
+            "--remove-pattern",
+            "-y-su-orquesta-típica",
             "--normalize-special-chars",
         ],
     )
@@ -186,8 +195,10 @@ def test_cli_rename_normalize_short_flag(tmp_path: Path) -> None:
         app,
         [
             "rename",
-            "--folder", str(tmp_path),
-            "--remove-pattern", "-y-su-orquesta-típica",
+            "--folder",
+            str(tmp_path),
+            "--remove-pattern",
+            "-y-su-orquesta-típica",
             "-nsc",
         ],
     )

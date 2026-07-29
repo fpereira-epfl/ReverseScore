@@ -3,16 +3,16 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "reversescore"
-version = "0.1.0"
-description = "Tango-focused audio-to-score transcription pipeline"
+name = "asp"
+version = "0.2.0"
+description = "ASP: Audio Score Processor — convert, analyse, split, trim and transcribe music files"
 readme = "README.md"
 requires-python = ">=3.9,<3.13"
 license = { text = "MIT" }
 authors = [
-    { name = "ReverseScore Contributors" },
+    { name = "ASP Contributors" },
 ]
-keywords = ["music", "transcription", "tango", "musicxml", "amt"]
+keywords = ["music", "transcription", "tango", "musicxml", "amt", "audio", "ffmpeg"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -62,7 +62,7 @@ dev = [
 ]
 
 [project.scripts]
-reversescore = "reversescore.cli:app"
+asp = "asp.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/ReverseScore/ReverseScore"
@@ -72,7 +72,7 @@ Repository = "https://github.com/ReverseScore/ReverseScore"
 where = ["src"]
 
 [tool.setuptools.package-data]
-reversescore = ["py.typed"]
+asp = ["py.typed"]
 
 [tool.ruff]
 line-length = 100
@@ -84,7 +84,7 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 # Typer 0.12.x does not support union syntax (X | None) for optional parameters.
-"src/reversescore/cli.py" = ["UP007"]
+"src/asp/cli.py" = ["UP007"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -103,4 +103,4 @@ follow_imports = "skip"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=reversescore --cov-report=term-missing"
+addopts = "--cov=asp --cov-report=term-missing"

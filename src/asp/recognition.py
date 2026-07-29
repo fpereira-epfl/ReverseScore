@@ -57,7 +57,9 @@ def format_track_filename(artist: str | None, title: str | None) -> str:
     Raises:
         ValueError: If both ``artist`` and ``title`` are empty or missing.
     """
-    parts = [p for p in (_slugify(artist) if artist else None, _slugify(title) if title else None) if p]
+    parts = [
+        p for p in (_slugify(artist) if artist else None, _slugify(title) if title else None) if p
+    ]
     if not parts:
         raise ValueError("Cannot build track filename: artist and title are both missing")
     return "_".join(parts)
@@ -175,7 +177,7 @@ async def recognize_async(
     try:
         ext = audio_path.suffix.lower()
         if ext not in SHAZAMIO_NATIVE_EXTENSIONS:
-            temp_dir = Path(tempfile.mkdtemp(prefix="reversescore_recognize_"))
+            temp_dir = Path(tempfile.mkdtemp(prefix="asp_recognize_"))
             wav_path = temp_dir / f"{safe_stem_name(audio_path.stem)}.wav"
             input_path = convert_to_wav(audio_path, wav_path, config)
             logger.info("Converted %s -> %s for ShazamIO", audio_path, input_path)

@@ -1,4 +1,4 @@
-"""Shared utilities for the ReverseScore pipeline."""
+"""Shared utilities for the ASP pipeline."""
 
 from __future__ import annotations
 
@@ -27,13 +27,17 @@ def find_audio_files(directory: Path, extensions: Iterable[str] | None = None) -
         Sorted list of matching file paths.
     """
     if extensions is None:
-        extensions = {".wav",".flac",".mp3",".ogg",".m4a",".aac"}
+        extensions = {".wav", ".flac", ".mp3", ".ogg", ".m4a", ".aac"}
     ext_set = {e.lower().lstrip(".") for e in extensions}
-    files = [p for p in directory.iterdir() if p.is_file() and p.suffix.lower().lstrip(".") in ext_set]
+    files = [
+        p for p in directory.iterdir() if p.is_file() and p.suffix.lower().lstrip(".") in ext_set
+    ]
     return sorted(files)
 
 
-def run_command(cmd: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+def run_command(
+    cmd: list[str], cwd: Path | None = None, check: bool = True
+) -> subprocess.CompletedProcess[str]:
     """Run a shell command and return the completed process.
 
     Args:

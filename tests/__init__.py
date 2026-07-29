@@ -1,1 +1,1 @@
-"""Tests for the ReverseScore package."""
+"""Tests for the ASP package."""

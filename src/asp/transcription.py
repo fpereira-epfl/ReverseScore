@@ -68,8 +68,7 @@ def transcribe_stem(
         )
     if backend != "basic-pitch":
         raise ValueError(
-            f"Unsupported transcription backend: {backend!r}. "
-            "Use 'basic-pitch' or 'yourmt3'."
+            f"Unsupported transcription backend: {backend!r}. " "Use 'basic-pitch' or 'yourmt3'."
         )
 
     ensure_dirs(output_dir)
@@ -92,8 +91,7 @@ def transcribe_stem(
     # basic-pitch and coremltools log their optional-backend/version warnings
     # through Python logging; temporarily raise their level to ERROR.
     noisy_loggers = [
-        logging.getLogger(name)
-        for name in ("basic_pitch", "coremltools", "basic_pitch.inference")
+        logging.getLogger(name) for name in ("basic_pitch", "coremltools", "basic_pitch.inference")
     ]
     old_levels = [(lg, lg.level) for lg in noisy_loggers]
     for lg, _ in old_levels:

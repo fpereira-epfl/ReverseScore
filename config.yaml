@@ -1,5 +1,5 @@
-# ReverseScore pipeline configuration.
-# Values here can be overridden by environment variables prefixed with REVERSESCORE_
+# ASP pipeline configuration.
+# Values here can be overridden by environment variables prefixed with ASP_
 # or by CLI flags.
 
 # Directory containing input audio files (e.g. m4a, mp3, flac).

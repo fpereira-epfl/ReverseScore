@@ -1,4 +1,4 @@
-.venv.revscore/bin/reversescore transcribe data/wav/hasta_siempre_amor_w0LxMwVt7iM.wav \
+.venv/bin/asp transcribe data/wav/hasta_siempre_amor_w0LxMwVt7iM.wav \
   --backend yourmt3 \
   --demucs-model htdemucs_ft \
   --bandoneon --violin --piano --bass --voice \

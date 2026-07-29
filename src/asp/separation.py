@@ -57,8 +57,10 @@ def separate_stems(
     demucs_exe = find_program("demucs")
     cmd: list[str] = [
         str(demucs_exe),
-        "--name", config.demucs_model,
-        "--out", str(out_dir),
+        "--name",
+        config.demucs_model,
+        "--out",
+        str(out_dir),
     ]
     if config.demucs_segment is not None:
         cmd.extend(["--segment", str(config.demucs_segment)])
@@ -125,9 +127,12 @@ def separate_two_stems_vocals(
     demucs_exe = find_program("demucs")
     cmd: list[str] = [
         str(demucs_exe),
-        "--name", config.demucs_model,
-        "--two-stems", "vocals",
-        "--out", str(out_dir),
+        "--name",
+        config.demucs_model,
+        "--two-stems",
+        "vocals",
+        "--out",
+        str(out_dir),
     ]
     if config.demucs_segment is not None:
         cmd.extend(["--segment", str(config.demucs_segment)])

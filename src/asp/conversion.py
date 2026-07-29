@@ -60,10 +60,14 @@ def convert_to_wav(
     cmd: list[str] = [
         str(ffmpeg),
         "-y" if overwrite else "-n",
-        "-i", str(input_path),
-        "-ar", str(sample_rate),
-        "-ac", str(channels),
-        "-c:a", "pcm_s16le",
+        "-i",
+        str(input_path),
+        "-ar",
+        str(sample_rate),
+        "-ac",
+        str(channels),
+        "-c:a",
+        "pcm_s16le",
         str(output_path),
     ]
 

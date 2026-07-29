@@ -374,8 +374,12 @@ def split_bandoneon_part(score: stream.Score) -> stream.Score:
                     target.insert(el.offset, el)
                 elif isinstance(el, note.Rest):
                     # Place rests in both staves to preserve measure alignment.
-                    treble_measure.insert(el.offset, note.Rest(quarterLength=el.duration.quarterLength))
-                    bass_measure.insert(el.offset, note.Rest(quarterLength=el.duration.quarterLength))
+                    treble_measure.insert(
+                        el.offset, note.Rest(quarterLength=el.duration.quarterLength)
+                    )
+                    bass_measure.insert(
+                        el.offset, note.Rest(quarterLength=el.duration.quarterLength)
+                    )
                 elif isinstance(el, meter.TimeSignature):
                     treble_measure.insert(0, el)
                     bass_measure.insert(0, el)

@@ -45,7 +45,9 @@ def _midi_has_notes(midi_bytes: bytes) -> bool:
             i += 3
         elif 0x80 <= byte <= 0xEF:
             # Other channel voice/mode messages: skip fixed-length data bytes.
-            if 0x80 <= byte <= 0x9F or 0xA0 <= byte <= 0xBF:  # Note On/Off (already handled On above)
+            if (
+                0x80 <= byte <= 0x9F or 0xA0 <= byte <= 0xBF
+            ):  # Note On/Off (already handled On above)
                 i += 3
             elif 0xC0 <= byte <= 0xDF:  # Program change / channel pressure
                 i += 2
@@ -143,8 +145,7 @@ def transcribe_stem_yourmt3(
     # gradio_client and httpx are chatty at INFO/DEBUG; raise them to WARNING
     # for the duration of the Space call.
     noisy_loggers = [
-        logging.getLogger(name)
-        for name in ("gradio_client", "httpx", "urllib3", "huggingface_hub")
+        logging.getLogger(name) for name in ("gradio_client", "httpx", "urllib3", "huggingface_hub")
     ]
     old_levels = [(lg, lg.level) for lg in noisy_loggers]
     for lg, _ in old_levels:
@@ -158,17 +159,13 @@ def transcribe_stem_yourmt3(
             api_name="/process_audio",
         )
     except Exception as exc:
-        raise RuntimeError(
-            f"YourMT3 Space call failed for {audio_path}"
-        ) from exc
+        raise RuntimeError(f"YourMT3 Space call failed for {audio_path}") from exc
     finally:
         for lg, level in old_levels:
             lg.setLevel(level)
 
     if not isinstance(result, str):
-        raise RuntimeError(
-            f"Unexpected YourMT3 response type: {type(result).__name__}"
-        )
+        raise RuntimeError(f"Unexpected YourMT3 response type: {type(result).__name__}")
 
     try:
         midi_bytes = _extract_midi_bytes(result)

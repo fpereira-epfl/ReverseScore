@@ -55,14 +55,24 @@ source .venv/bin/activate
 uv pip install -e ".[dev]"
 ```
 
-The `reversescore` CLI works even when the virtual environment is not activated (e.g. `.venv/bin/reversescore`), because it searches the interpreter's own `bin` directory for tools like `demucs`.
+The `asp` CLI works even when the virtual environment is not activated (e.g. `.venv/bin/asp`), because it searches the interpreter's own `bin` directory for tools like `demucs`.
+
+### Install system-wide
+
+After installing in a virtual environment, you can make `asp` available from anywhere with:
+
+```bash
+asp install
+```
+
+This creates a launcher in `/usr/local/bin/asp`. Run `asp install --update` to replace an existing launcher.
 
 ## Usage
 
 ### Full pipeline
 
 ```bash
-reversescore transcribe data/wav/angelica_bjbn5mice4k.wav --time-signature 4/4
+asp transcribe data/wav/angelica_bjbn5mice4k.wav --time-signature 4/4
 ```
 
 By default the command organizes outputs under `./data/trans/<song>/`:
@@ -74,7 +84,7 @@ By default the command organizes outputs under `./data/trans/<song>/`:
 ### CLI options
 
 ```bash
-reversescore transcribe --help
+asp transcribe --help
 ```
 
 Key options:
@@ -96,28 +106,43 @@ Key options:
 | `--bass / --no-bass` | Hint bass presence/absence | inferred |
 | `--drums / --no-drums` | Hint drums presence/absence | inferred |
 
-### Convert m4a/mp3/etc. to WAV
+### Convert audio files
 
-If your source files are not WAV, use ffmpeg to convert them first:
+ASP can convert a single file or a whole directory. The output format is inferred from `--output` or `--format`, and defaults to AIFC:
 
 ```bash
-# Convert a single file
-reversescore convert-to-wav data/m4a/angelica_BJBn5MICe4k.m4a
+# Convert a single file to AIFC (default)
+asp convert data/m4a/angelica_BJBn5MICe4k.m4a
 
-# Or convert every supported file in the configured input_dir
-reversescore convert-to-wav
+# Convert to WAV
+asp convert data/m4a/angelica_BJBn5MICe4k.m4a --format wav
+
+# Convert to a specific format
+asp convert data/m4a/angelica_BJBn5MICe4k.m4a --format flac
+
+# Convert AIFF/AIFC to AAC/M4A
+asp convert recording.aifc --output recording.m4a
+
+# Batch-convert a directory to AIFC
+asp convert data/m4a --output ./data/aifc
+
+# Batch-convert a directory to WAV
+asp convert data/m4a --output ./data/wav --format wav
+
+# Convert with normalization and denoising
+asp convert recording.aifc --output cleaned.m4a --normalize --denoise soft
 ```
 
-The default output is `./data/wav/` (configurable via `wav_output_dir`). Then transcribe the WAV:
+Then transcribe the WAV:
 
 ```bash
-reversescore transcribe ./data/wav/angelica_bjbn5mice4k.wav --time-signature 4/4
+asp transcribe ./data/wav/angelica_bjbn5mice4k.wav --time-signature 4/4
 ```
 
 With instrument hints (e.g. a typical tango orquesta with no singer or drums):
 
 ```bash
-reversescore transcribe ./data/wav/angelica_bjbn5mice4k.wav \
+asp transcribe ./data/wav/angelica_bjbn5mice4k.wav \
     --bandoneon --violin --piano --bass --no-voice --no-drums
 ```
 
@@ -126,13 +151,34 @@ reversescore transcribe ./data/wav/angelica_bjbn5mice4k.wav \
 Separate only:
 
 ```bash
-reversescore separate path/to/tango.wav -o ./out
+asp separate path/to/tango.wav -o ./out
 ```
 
 Transcribe existing stems:
 
 ```bash
-reversescore stems-to-midi ./out/stems/tango/htdemucs/ -o ./out
+asp stems-to-midi ./out/stems/tango/htdemucs/ -o ./out
+```
+
+### Audio file processing
+
+ASP also includes utilities for working with audio files directly:
+
+```bash
+# Analyse an audio file
+asp scan data/wav/angelica_bjbn5mice4k.wav
+
+# Convert between formats with optional normalization/denoise
+asp convert recording.aifc --output cleaned.m4a --normalize --denoise soft
+
+# Convert to AIFC (default)
+asp convert recording.wav --output recording.aifc
+
+# Trim edge silence
+asp trim recording.aifc --min-silence 1.0 --threshold -40dB
+
+# Split a long recording into tracks
+asp split recording.aifc --tracks 10 --min-track 2:00 --max-track 4:00
 ```
 
 ## Configuration (`config.yaml`)
@@ -168,21 +214,30 @@ instrument_hints: []
 instrument_exclusions: []
 ```
 
-Override precedence: CLI flags > environment variables (`REVERSESCORE_*`) > `config.yaml` > `.env` > defaults.
+Override precedence: CLI flags > environment variables (`ASP_*`) > `config.yaml` > `.env` > defaults.
 
 ## Project Structure
 
 ```
 ReverseScore/
-├── src/reversescore/
+├── src/asp/
 │   ├── __init__.py
 │   ├── cli.py              # Typer + Rich CLI
 │   ├── config.py           # Pydantic settings (loads config.yaml)
 │   ├── conversion.py       # ffmpeg m4a/mp3 -> WAV
+│   ├── audio_convert.py    # General audio conversion (normalize, denoise)
+│   ├── audio_scan.py       # Audio file analysis
+│   ├── audio_split.py      # Split recordings by silence
+│   ├── audio_trim.py       # Trim edge silence
+│   ├── _ffmpeg.py          # Shared FFmpeg helpers
+│   ├── _console.py         # Shared Rich/emoji helpers
 │   ├── separation.py       # demucs wrapper
 │   ├── transcription.py    # basic-pitch wrapper
 │   ├── notation.py         # music21 quantization & export
 │   ├── pipeline.py         # End-to-end orchestration
+│   ├── recognition.py      # ShazamIO song identification
+│   ├── renaming.py         # Bulk filename renaming
+│   ├── yourmt3_remote.py   # YourMT3 remote backend
 │   └── utils.py            # Shared helpers
 ├── tests/
 │   ├── __init__.py
@@ -190,7 +245,12 @@ ReverseScore/
 │   ├── test_conversion.py
 │   ├── test_notation.py
 │   ├── test_separation.py
-│   └── test_transcription.py
+│   ├── test_transcription.py
+│   ├── test_recognition.py
+│   ├── test_renaming.py
+│   ├── test_utils.py
+│   ├── test_pipeline.py
+│   └── test_yourmt3.py
 ├── config.yaml             # User-editable defaults
 ├── pyproject.toml
 └── README.md

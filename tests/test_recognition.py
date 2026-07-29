@@ -6,9 +6,9 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-from reversescore.cli import app
-from reversescore.config import PipelineConfig
-from reversescore.recognition import (
+from asp.cli import app
+from asp.config import PipelineConfig
+from asp.recognition import (
     find_matching_files,
     format_track_filename,
     recognize_async,
@@ -73,14 +73,16 @@ def test_recognize_song_aifc_converts(tmp_path: Path, mock_shazam: tuple) -> Non
     audio = tmp_path / "song.aifc"
     audio.write_text("fake audio")
 
-    def _fake_convert(input_path: Path, output_path: Path, cfg: PipelineConfig, **kwargs: object) -> Path:
+    def _fake_convert(
+        input_path: Path, output_path: Path, cfg: PipelineConfig, **kwargs: object
+    ) -> Path:
         output_path.touch()
         return output_path
 
     _, instance = mock_shazam
     config = PipelineConfig(output_dir=tmp_path)
 
-    with mock.patch("reversescore.recognition.convert_to_wav", side_effect=_fake_convert) as mock_convert:
+    with mock.patch("asp.recognition.convert_to_wav", side_effect=_fake_convert) as mock_convert:
         result = recognize_song(audio, config)
 
     mock_convert.assert_called_once()
@@ -121,7 +123,10 @@ def test_recognize_async_is_async(tmp_path: Path, mock_shazam: tuple) -> None:
 
 
 def test_format_track_filename() -> None:
-    assert format_track_filename("Gerardo Matos Rodríguez", "La Cumparsita") == "gerardo-matos-rodríguez_la-cumparsita"
+    assert (
+        format_track_filename("Gerardo Matos Rodríguez", "La Cumparsita")
+        == "gerardo-matos-rodríguez_la-cumparsita"
+    )
     assert format_track_filename(None, "La Cumparsita") == "la-cumparsita"
     assert format_track_filename("Donato", None) == "donato"
 
@@ -185,7 +190,11 @@ def test_find_matching_files_natural_sort(tmp_path: Path) -> None:
     (tmp_path / "full_track_1.aifc").touch()
 
     files = find_matching_files(tmp_path, "full_track_%%.aifc")
-    assert [p.name for p in files] == ["full_track_1.aifc", "full_track_2.aifc", "full_track_10.aifc"]
+    assert [p.name for p in files] == [
+        "full_track_1.aifc",
+        "full_track_2.aifc",
+        "full_track_10.aifc",
+    ]
 
 
 def test_cli_identify_folder_rename(tmp_path: Path, mock_shazam: tuple) -> None:
@@ -194,7 +203,16 @@ def test_cli_identify_folder_rename(tmp_path: Path, mock_shazam: tuple) -> None:
 
     result = runner.invoke(
         app,
-        ["identify", "--folder", str(tmp_path), "--pattern", "full_track_%%.m4a", "--rename", "--delay", "0"],
+        [
+            "identify",
+            "--folder",
+            str(tmp_path),
+            "--pattern",
+            "full_track_%%.m4a",
+            "--rename",
+            "--delay",
+            "0",
+        ],
     )
     assert result.exit_code == 0, result.output
 
@@ -208,10 +226,18 @@ def test_cli_identify_folder_delay(tmp_path: Path, mock_shazam: tuple) -> None:
     (tmp_path / "full_track_01.m4a").write_text("fake")
     (tmp_path / "full_track_02.m4a").write_text("fake")
 
-    with mock.patch("reversescore.cli.time.sleep") as mock_sleep:
+    with mock.patch("asp.cli.time.sleep") as mock_sleep:
         result = runner.invoke(
             app,
-            ["identify", "--folder", str(tmp_path), "--pattern", "full_track_%%.m4a", "--delay", "1.5"],
+            [
+                "identify",
+                "--folder",
+                str(tmp_path),
+                "--pattern",
+                "full_track_%%.m4a",
+                "--delay",
+                "1.5",
+            ],
         )
 
     assert result.exit_code == 0, result.output

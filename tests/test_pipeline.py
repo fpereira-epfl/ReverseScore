@@ -3,9 +3,9 @@
 from pathlib import Path
 from unittest import mock
 
+from asp.config import PipelineConfig
+from asp.pipeline import run_pipeline
 from music21 import note, stream
-from reversescore.config import PipelineConfig
-from reversescore.pipeline import run_pipeline
 
 
 def _make_stem_wav(path: Path) -> None:
@@ -39,8 +39,8 @@ def test_run_pipeline(tmp_path: Path) -> None:
         s.write("midi", fp=str(p))
 
     with (
-        mock.patch("reversescore.pipeline.separate_stems", return_value=stem_paths) as mock_sep,
-        mock.patch("reversescore.pipeline.transcribe_stems", return_value=midi_paths) as mock_trans,
+        mock.patch("asp.pipeline.separate_stems", return_value=stem_paths) as mock_sep,
+        mock.patch("asp.pipeline.transcribe_stems", return_value=midi_paths) as mock_trans,
     ):
         result = run_pipeline(audio, config)
 

@@ -1,4 +1,4 @@
-"""Configuration and validated settings for the ReverseScore pipeline."""
+"""Configuration and validated settings for the ASP pipeline."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ class PipelineConfig(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_prefix="REVERSESCORE_",
+        env_prefix="ASP_",
         env_file=".env",
         env_file_encoding="utf-8",
         yaml_file="config.yaml",

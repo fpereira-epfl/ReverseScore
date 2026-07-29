@@ -2,9 +2,8 @@
 
 from pathlib import Path
 
-from music21 import note, stream
-from reversescore.config import PipelineConfig
-from reversescore.notation import (
+from asp.config import PipelineConfig
+from asp.notation import (
     _rebuild_parts,
     _simplify_durations,
     assign_instrument,
@@ -15,6 +14,7 @@ from reversescore.notation import (
     set_time_signature,
     split_bandoneon_part,
 )
+from music21 import note, stream
 
 
 def test_set_time_signature() -> None:

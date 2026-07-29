@@ -3,8 +3,8 @@
 from pathlib import Path
 from unittest import mock
 
-from reversescore.config import PipelineConfig
-from reversescore.transcription import transcribe_stem
+from asp.config import PipelineConfig
+from asp.transcription import transcribe_stem
 
 
 def test_transcribe_stem_reuses_existing(tmp_path: Path) -> None:
@@ -18,7 +18,7 @@ def test_transcribe_stem_reuses_existing(tmp_path: Path) -> None:
     config = PipelineConfig()
     mock_predict = mock.MagicMock()
     with mock.patch(
-        "reversescore.transcription._basic_pitch_imports",
+        "asp.transcription._basic_pitch_imports",
         return_value=("model", mock_predict),
     ):
         result = transcribe_stem(audio, midi_dir, config, label="bass")

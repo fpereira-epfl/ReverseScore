@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from reversescore.utils import ensure_dirs, find_audio_files, safe_stem_name
+from asp.utils import ensure_dirs, find_audio_files, safe_stem_name
 
 
 def test_ensure_dirs(tmp_path: Path) -> None:

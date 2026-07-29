@@ -222,3 +222,4 @@ data
 .DS_Store
 .venv*
 out/
+scripts/

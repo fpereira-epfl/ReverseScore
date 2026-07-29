@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import pytest
-from reversescore.config import PipelineConfig
+from asp.config import PipelineConfig
 
 
 @pytest.fixture
