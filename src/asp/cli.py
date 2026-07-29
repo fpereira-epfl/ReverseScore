@@ -344,13 +344,27 @@ def convert_cmd(
         str, typer.Option("--bitrate", "-b", help="Lossy bitrate, e.g. 192k, 256k, 320k.")
     ] = "256k",
     normalize: Annotated[
-        bool, typer.Option("--normalize", "-n", help="Normalize loudness with a fixed gain.")
+        bool,
+        typer.Option(
+            "--normalize",
+            "-n",
+            help="Apply constant-gain loudness normalization (uses --target-loudness and --true-peak defaults).",
+        ),
     ] = False,
     target_loudness: Annotated[
-        float, typer.Option("--target-loudness", help="Target integrated loudness in LUFS.")
+        float,
+        typer.Option(
+            "--target-loudness",
+            help="Target integrated loudness when --normalize is used.",
+        ),
     ] = -18.0,
     true_peak: Annotated[
-        Optional[float], typer.Option("--true-peak", help="True-peak ceiling in dBTP.")
+        Optional[float],
+        typer.Option(
+            "--true-peak",
+            help="True-peak ceiling when --normalize is used.",
+            show_default="-2 dBTP lossy / -1 dBTP lossless",
+        ),
     ] = None,
     denoise: Annotated[
         str,
@@ -378,7 +392,7 @@ def convert_cmd(
 
     Provide a single file or a directory. The output format is taken from
     ``--format``, then from the ``--output`` file extension, and finally
-    defaults to ``wav``.
+    defaults to ``aifc``.
     """
     input = input.expanduser().resolve()
     if not input.exists():
