@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -27,6 +28,7 @@ def separate_stems(
     audio_path: Path,
     config: PipelineConfig,
     overwrite: bool = False,
+    flat_output_dir: Path | None = None,
 ) -> dict[str, Path]:
     """Separate an audio file into stems using demucs.
 
@@ -34,6 +36,10 @@ def separate_stems(
         audio_path: Path to the input audio file.
         config: Pipeline configuration.
         overwrite: Re-run separation even if stems already exist.
+        flat_output_dir: If given, copy the resulting stems directly into this
+            directory and return paths pointing there. demucs still writes to
+            its normal nested working directory under ``config.separation_dir``,
+            but callers of ``asp separate`` receive a clean, flat output folder.
 
     Returns:
         Mapping from stem label to WAV file path.
@@ -52,30 +58,37 @@ def separate_stems(
     model_dir = out_dir / config.demucs_model
     if model_dir.exists() and not overwrite:
         logger.info("Reusing existing stems in %s", model_dir)
-        return _collect_stems(model_dir, config.demucs_stems)
+        stems = _collect_stems(model_dir, config.demucs_stems)
+    else:
+        demucs_exe = find_program("demucs")
+        cmd: list[str] = [
+            str(demucs_exe),
+            "--name",
+            config.demucs_model,
+            "--out",
+            str(out_dir),
+        ]
+        if config.demucs_segment is not None:
+            cmd.extend(["--segment", str(config.demucs_segment)])
+        if config.demucs_device:
+            cmd.extend(["--device", config.demucs_device])
+        cmd.append(str(audio_path))
 
-    demucs_exe = find_program("demucs")
-    cmd: list[str] = [
-        str(demucs_exe),
-        "--name",
-        config.demucs_model,
-        "--out",
-        str(out_dir),
-    ]
-    if config.demucs_segment is not None:
-        cmd.extend(["--segment", str(config.demucs_segment)])
-    if config.demucs_device:
-        cmd.extend(["--device", config.demucs_device])
-    cmd.append(str(audio_path))
+        logger.info("Running demucs: %s", " ".join(cmd))
+        result = run_command(cmd)
+        if result.stdout:
+            logger.debug("demucs stdout:\n%s", result.stdout)
+        if result.stderr:
+            logger.debug("demucs stderr:\n%s", result.stderr)
 
-    logger.info("Running demucs: %s", " ".join(cmd))
-    result = run_command(cmd)
-    if result.stdout:
-        logger.debug("demucs stdout:\n%s", result.stdout)
-    if result.stderr:
-        logger.debug("demucs stderr:\n%s", result.stderr)
+        stems = _collect_stems(model_dir, config.demucs_stems)
 
-    return _collect_stems(model_dir, config.demucs_stems)
+    if flat_output_dir is not None:
+        flat_output_dir = flat_output_dir.expanduser().resolve()
+        ensure_dirs(flat_output_dir)
+        stems = _copy_stems_flat(stems, flat_output_dir)
+
+    return stems
 
 
 def _collect_stems(model_dir: Path, stems: Iterable[str]) -> dict[str, Path]:
@@ -94,6 +107,21 @@ def _collect_stems(model_dir: Path, stems: Iterable[str]) -> dict[str, Path]:
             result[label] = wav
         else:
             logger.warning("Expected stem not found: %s", wav)
+    return result
+
+
+def _copy_stems_flat(stems: dict[str, Path], flat_output_dir: Path) -> dict[str, Path]:
+    """Copy stems into a single flat directory and return the new paths.
+
+    Filenames are written as ``<label>.wav`` so the output folder is easy to
+    inspect and consume by downstream tools such as ``asp stems-to-midi``.
+    """
+    flat_output_dir = flat_output_dir.expanduser().resolve()
+    result: dict[str, Path] = {}
+    for label, source in stems.items():
+        destination = flat_output_dir / f"{label}.wav"
+        shutil.copy2(source, destination)
+        result[label] = destination
     return result
 
 

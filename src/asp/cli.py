@@ -22,7 +22,8 @@ from . import __version__
 from ._console import error, format_duration, human_size, info, kv_table, ok, section, warn
 from .audio_convert import _format_from_path, convert_audio_files, summarize_conversion
 from .audio_scan import ScanResult, scan_audio
-from .audio_split import split_recording
+from .audio_split import SplitError, split_recording
+from .audio_tempo import change_tempo
 from .audio_trim import trim_silence
 from .config import PipelineConfig, TranscriptionBackend
 from .pipeline import run_pipeline
@@ -257,16 +258,16 @@ def separate(
         _exit(f"Audio file not found: {audio}")
 
     config = PipelineConfig(output_dir=output_dir, demucs_model=model)
-    ensure_dirs(config.separation_dir)
+    ensure_dirs(output_dir)
 
     section(console, "Separating audio into stems", "🎚️")
     info(console, f"Input: {audio}")
     info(console, f"Model: {model}")
-    info(console, f"Output: {config.separation_dir}")
+    info(console, f"Output: {output_dir}")
 
-    stems = run_separation(audio, config, overwrite=overwrite)
+    stems = run_separation(audio, config, overwrite=overwrite, flat_output_dir=output_dir)
     _print_stems(stems)
-    ok(console, f"Separated {len(stems)} stems")
+    ok(console, f"Separated {len(stems)} stems into {output_dir}")
 
 
 @app.command()
@@ -332,14 +333,14 @@ def convert_cmd(
         ),
     ] = None,
     format: Annotated[
-        Optional[str],
+        str,
         typer.Option(
             "--format",
             "-f",
-            help="Output format: m4a, aac, mp3, flac, wav, aiff, aifc. Inferred from --output if omitted; defaults to aifc.",
+            help="Output format: m4a (AAC in MP4), aac (raw ADTS AAC), mp3, flac, wav, aiff, aifc. Overridden by --output extension when given.",
             callback=_validate_format,
         ),
-    ] = None,
+    ] = "m4a",
     bitrate: Annotated[
         str, typer.Option("--bitrate", "-b", help="Lossy bitrate, e.g. 192k, 256k, 320k.")
     ] = "256k",
@@ -392,23 +393,19 @@ def convert_cmd(
 
     Provide a single file or a directory. The output format is taken from
     ``--format``, then from the ``--output`` file extension, and finally
-    defaults to ``aifc``.
+    defaults to ``m4a`` (AAC in an MP4 container).
     """
     input = input.expanduser().resolve()
     if not input.exists():
         _exit(f"Input not found: {input}")
 
-    # Resolve format: explicit > output extension > aifc default.
-    chosen_format: str = format or "aifc"
+    # Resolve format: --output extension takes precedence over --format.
+    chosen_format = format
     if output is not None:
         output = output.expanduser().resolve()
         inferred = _format_from_path(output)
         if inferred is not None:
             chosen_format = inferred
-        elif format is None and output.is_dir():
-            chosen_format = "aifc"
-    elif format is None:
-        chosen_format = "aifc"
 
     section(console, "Converting audio", "🔄")
     info(console, f"Input: {input}")
@@ -416,10 +413,14 @@ def convert_cmd(
     if output:
         info(console, f"Output: {output}")
 
+    def _progress(source: Path, destination: Path) -> None:
+        info(console, f"🎵 {source.name} → {destination.name}")
+
     try:
         results = convert_audio_files(
             input,
             output,
+            progress_callback=_progress,
             output_format=cast(Any, chosen_format),
             bitrate=bitrate,
             normalize=normalize,
@@ -503,6 +504,29 @@ def split_cmd(
             callback=_validate_threshold,
         ),
     ] = "-40dB",
+    hints: Annotated[
+        Optional[list[str]],
+        typer.Option(
+            "--hints",
+            help=(
+                "Manual silence hints as MM:SS or HH:MM:SS timestamps. "
+                "Repeat the flag or pass a quoted space-separated list."
+            ),
+        ),
+    ] = None,
+    added_silence: Annotated[
+        int,
+        typer.Option(
+            "--added-silence",
+            "-as",
+            help=(
+                "Length in seconds of added silence between tracks. Enables an "
+                "alternative splitter that detects silences of N-1 seconds, cuts "
+                "in the middle, trims trailing silence, and filters out quiet or "
+                "short segments."
+            ),
+        ),
+    ] = 0,
     padding: Annotated[
         float,
         typer.Option("--padding", "-p", help="Audio retained on each side of a selected silence."),
@@ -524,34 +548,44 @@ def split_cmd(
     ] = False,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", "-n", help="Detect and print boundaries without writing files."),
+        typer.Option("--dry-run", help="Detect and print boundaries without writing files."),
     ] = False,
 ) -> None:
     """Split a long recording into tracks using detected silences."""
     input = input.expanduser().resolve()
     if not input.is_file():
         _exit(f"Input file not found: {input}")
-    if tracks <= 0:
-        _exit("--tracks is required and must be greater than zero")
-    if not min_track or not max_track:
-        _exit("--min-track and --max-track are required")
+    if added_silence > 0:
+        if added_silence < 2:
+            _exit("--added-silence must be at least 2 seconds")
+    else:
+        if tracks <= 0:
+            _exit("--tracks is required and must be greater than zero")
+        if not min_track or not max_track:
+            _exit("--min-track and --max-track are required")
 
     from .audio_split import _format_time as fmt_time
 
     try:
         from .audio_split import _parse_time
 
-        min_seconds = _parse_time(min_track)
-        max_seconds = _parse_time(max_track)
+        min_seconds = _parse_time(min_track) if min_track else 0.0
+        max_seconds = _parse_time(max_track) if max_track else 0.0
         target_seconds = _parse_time(target_track) if target_track else None
+        hint_seconds = [_parse_time(part) for token in hints or [] for part in token.split()]
     except ValueError as exc:
         _exit(str(exc))
 
     section(console, "Splitting recording into tracks", "✂️")
     info(console, f"Input: {input}")
-    info(console, f"Requested tracks: {tracks}")
-    info(console, f"Allowed length: {fmt_time(min_seconds)}–{fmt_time(max_seconds)}")
-    info(console, f"Detection: gap {gap:g}s, threshold {threshold}")
+    if added_silence > 0:
+        info(console, f"Added silence mode: {added_silence}s")
+    else:
+        info(console, f"Requested tracks: {tracks}")
+        info(console, f"Allowed length: {fmt_time(min_seconds)}–{fmt_time(max_seconds)}")
+        info(console, f"Detection: gap {gap:g}s, threshold {threshold}")
+    if hint_seconds:
+        info(console, f"Hints: {', '.join(fmt_time(h) for h in hint_seconds)}")
 
     try:
         result = split_recording(
@@ -568,7 +602,12 @@ def split_cmd(
             prefix=prefix,
             overwrite=overwrite,
             dry_run=dry_run,
+            hints=hint_seconds,
+            added_silence=added_silence,
         )
+    except SplitError as exc:
+        _print_split_diagnostics(console, exc)
+        raise typer.Exit(code=1) from None
     except Exception as exc:
         _exit(str(exc))
 
@@ -643,6 +682,224 @@ def trim_cmd(
     ok(console, "Trim complete")
 
 
+@app.command("tempo")
+def tempo_cmd(
+    input: Annotated[Path, typer.Argument(help="Source audio file.")],
+    output: Annotated[
+        Optional[Path],
+        typer.Option("--output-file", "-o", help="Output path. Defaults to INPUT_{factor}x.EXT."),
+    ] = None,
+    factor: Annotated[
+        float,
+        typer.Option(
+            "--factor",
+            "-f",
+            help="Tempo multiplier, e.g. 0.85 or 1.25.",
+            min=0.01,
+        ),
+    ] = 1.0,
+    overwrite: Annotated[
+        bool, typer.Option("--overwrite", help="Overwrite existing output.")
+    ] = False,
+) -> None:
+    """Change playback tempo without changing pitch using rubberband."""
+    input = input.expanduser().resolve()
+    if not input.is_file():
+        _exit(f"Input file not found: {input}")
+    if output is not None:
+        output = output.expanduser().resolve()
+
+    section(console, "Changing tempo", "⏱️")
+    info(console, f"Input: {input}")
+    info(console, f"Factor: {factor:g}x")
+
+    try:
+        result = change_tempo(input, factor, output_path=output, overwrite=overwrite)
+    except Exception as exc:
+        _exit(str(exc))
+
+    info(console, f"Output: {result}")
+    ok(console, f"Tempo changed to {factor:g}x")
+
+
+def _default_identify_cache_path(files: list[Path], input_dir: Path | None) -> Path:
+    """Return the default cache path for identify results."""
+    if input_dir is not None:
+        return input_dir / "local_cache.json"
+    if files:
+        return files[0].parent / "local_cache.json"
+    return Path("local_cache.json")
+
+
+def _load_identify_cache(cache_path: Path) -> dict[str, dict[str, Any]]:
+    """Load cached identify results keyed by filename.
+
+    Returns an empty dict if the file does not exist or is malformed.
+    Stale rename metadata is removed so that each run reports only its own renames.
+    """
+    if not cache_path.is_file():
+        return {}
+    try:
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        warn(console, f"Cache file is malformed; ignoring {cache_path}")
+        return {}
+
+    def _clean(item: dict[str, Any]) -> dict[str, Any]:
+        cleaned = dict(item)
+        cleaned.pop("renamed_to", None)
+        return cleaned
+
+    if isinstance(data, dict) and "results" in data and isinstance(data["results"], dict):
+        return {key: _clean(value) for key, value in data["results"].items()}
+    # Legacy list-style cache.
+    if isinstance(data, list):
+        return {
+            Path(item["input_path"]).name: _clean(item) for item in data if "input_path" in item
+        }
+    warn(console, f"Cache file has unexpected format; ignoring {cache_path}")
+    return {}
+
+
+def _save_identify_cache(cache_path: Path, results: list[dict[str, Any]]) -> None:
+    """Merge identify results into a JSON cache keyed by filename.
+
+    Existing entries are preserved; new results overwrite entries for the same
+    filename. This prevents losing cached data if a run is interrupted or if
+    the input file list changes between runs.
+    """
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = _load_identify_cache(cache_path)
+    merged = dict(existing)
+    for result in results:
+        key = Path(result["input_path"]).name
+        merged[key] = result
+    payload = {"version": 1, "results": merged}
+    cache_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _apply_rename(file_path: Path, result: dict[str, Any]) -> None:
+    """Rename a file based on a recognition result, mutating the result dict."""
+    from .recognition import format_track_filename
+
+    try:
+        new_stem = format_track_filename(result.get("artist"), result.get("title"))
+    except ValueError as exc:
+        warn(console, f"Cannot rename {file_path.name}: {exc}")
+        return
+
+    ext = file_path.suffix.lower()
+    target = file_path.with_name(f"{new_stem}{ext}")
+    original_target = target
+    counter = 1
+    while target.exists():
+        target = original_target.with_name(f"{new_stem}_{counter}{ext}")
+        counter += 1
+
+    file_path.rename(target)
+    result["renamed_to"] = str(target)
+    ok(console, f"Renamed {file_path.name} -> {target.name}")
+
+
+def _print_split_diagnostics(console: Console, exc: SplitError) -> None:
+    """Print a rich, actionable split-failure report."""
+    warn(console, str(exc))
+    diagnostics = exc.diagnostics
+    if not diagnostics:
+        return
+
+    section(console, "Split diagnostics", "🔍")
+    table = Table()
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="magenta")
+    table.add_column("Unit", style="green")
+    table.add_column("Parameter", style="yellow")
+
+    def _dur(value: object) -> str:
+        if isinstance(value, (int, float)):
+            return f"{value:.3f}"
+        return str(value)
+
+    table.add_row(
+        "Recording duration",
+        str(diagnostics.get("total_duration", "-")),
+        "(time)",
+        "",
+    )
+    table.add_row(
+        "Usable content duration",
+        str(diagnostics.get("content_duration", "-")),
+        "(time)",
+        "",
+    )
+    table.add_row(
+        "Requested tracks",
+        str(diagnostics.get("requested_tracks", "-")),
+        "count",
+        "--tracks",
+    )
+    table.add_row(
+        "Boundaries needed",
+        str(diagnostics.get("boundaries_needed", "-")),
+        "count",
+        "",
+    )
+    table.add_row(
+        "Allowed track length",
+        f"{diagnostics.get('min_track', '-')}-{diagnostics.get('max_track', '-')}",
+        "(time)",
+        "--min-track, --max-track",
+    )
+    table.add_row(
+        "Target track length",
+        str(diagnostics.get("target_track", "-")),
+        "(time)",
+        "--target-track",
+    )
+    table.add_row(
+        "Silence threshold",
+        str(diagnostics.get("threshold_db", "-")),
+        "dB",
+        "--threshold, -t",
+    )
+    table.add_row(
+        "Minimum silence gap",
+        f"{diagnostics.get('gap', '-')}",
+        "s",
+        "--gap, -g",
+    )
+    table.add_row(
+        "Total silences detected",
+        str(diagnostics.get("total_silences", "-")),
+        "count",
+        "",
+    )
+    table.add_row(
+        "Usable internal silences",
+        str(diagnostics.get("usable_candidates", "-")),
+        "count",
+        "",
+    )
+
+    if "shortest_silence" in diagnostics:
+        table.add_row("Shortest silence", _dur(diagnostics["shortest_silence"]), "s", "")
+        table.add_row("Longest silence", _dur(diagnostics["longest_silence"]), "s", "")
+        table.add_row("Average silence", _dur(diagnostics["average_silence"]), "s", "")
+    if "shortest_gap" in diagnostics:
+        table.add_row("Shortest gap between silences", _dur(diagnostics["shortest_gap"]), "s", "")
+        table.add_row("Longest gap between silences", _dur(diagnostics["longest_gap"]), "s", "")
+        table.add_row("Average gap between silences", _dur(diagnostics["average_gap"]), "s", "")
+
+    console.print(table)
+
+    recommendations = diagnostics.get("recommendations")
+    if isinstance(recommendations, list):
+        section(console, "Suggestions", "💡")
+        for recommendation in recommendations:
+            if isinstance(recommendation, str):
+                info(console, f"• {recommendation}")
+
+
 @app.command()
 def identify(
     audio: Annotated[
@@ -652,8 +909,6 @@ def identify(
         Optional[Path],
         typer.Option(
             "--input-dir",
-            "--folder",
-            "-i",
             "-d",
             help="Directory containing audio files to identify.",
         ),
@@ -678,22 +933,31 @@ def identify(
         typer.Option(
             "--delay", help="Seconds to wait between batch requests to avoid rate limiting."
         ),
-    ] = 3.0,
+    ] = 1.0,
+    use_cache: Annotated[
+        bool,
+        typer.Option(
+            "--use-cache",
+            "-c",
+            help="Skip re-identification of files that already have cached results. The cache is always updated.",
+        ),
+    ] = False,
 ) -> None:
     """Identify the artist and song title using ShazamIO."""
-    from .recognition import find_matching_files, format_track_filename, recognize_song
+    from .recognition import find_matching_files, recognize_song
 
     if audio is not None and input_dir is not None:
         _exit("Specify either an audio file or --input-dir, not both.")
 
+    resolved_input_dir: Path | None = None
     files: list[Path] = []
     if input_dir is not None:
-        input_dir = input_dir.expanduser().resolve()
-        if not input_dir.is_dir():
-            _exit(f"Directory not found: {input_dir}")
-        files = find_matching_files(input_dir, pattern)
+        resolved_input_dir = input_dir.expanduser().resolve()
+        if not resolved_input_dir.is_dir():
+            _exit(f"Directory not found: {resolved_input_dir}")
+        files = find_matching_files(resolved_input_dir, pattern)
         if not files:
-            _exit(f"No files matching '{pattern}' found in {input_dir}")
+            _exit(f"No files matching '{pattern}' found in {resolved_input_dir}")
     elif audio is not None:
         audio = audio.expanduser().resolve()
         if not audio.is_file():
@@ -702,13 +966,43 @@ def identify(
     else:
         _exit("Specify an audio file or --input-dir.")
 
+    cache_path = _default_identify_cache_path(files, resolved_input_dir)
+
     section(console, "Identifying music", "🎤")
     info(console, f"Files to identify: {len(files)}")
 
     results: list[dict[str, Any]] = []
-    for index, file_path in enumerate(files):
-        if index > 0 and delay > 0:
+    cached = _load_identify_cache(cache_path)
+    if use_cache and cached:
+        info(console, f"Loaded {len(cached)} cached result(s) from {cache_path}")
+
+    if use_cache:
+        cached_ok_count = sum(
+            1 for f in files if f.name in cached and "error" not in cached[f.name]
+        )
+        cached_fail_count = sum(1 for f in files if f.name in cached and "error" in cached[f.name])
+        to_identify_count = len(files) - cached_ok_count - cached_fail_count
+        info(
+            console,
+            f"{cached_ok_count} cached successes, {cached_fail_count} cached failures, {to_identify_count} remaining to identify",
+        )
+
+    identify_index = 0
+    for file_path in files:
+        cache_key = file_path.name
+        if use_cache and cache_key in cached:
+            cached_result = dict(cached[cache_key])
+            cached_result["input_path"] = str(file_path)
+            results.append(cached_result)
+            if "error" in cached_result:
+                info(console, f"Skipping {file_path.name} (cached failure)")
+            else:
+                info(console, f"Skipping {file_path.name} (cached)")
+            continue
+
+        if identify_index > 0 and delay > 0:
             time.sleep(delay)
+        identify_index += 1
 
         with Progress(
             SpinnerColumn(),
@@ -723,25 +1017,16 @@ def identify(
                 warn(console, f"Recognition failed for {file_path.name}: {exc}")
                 result = {"input_path": str(file_path), "error": str(exc)}
 
-        if rename and "error" not in result:
-            try:
-                new_stem = format_track_filename(result.get("artist"), result.get("title"))
-            except ValueError as exc:
-                warn(console, f"Cannot rename {file_path.name}: {exc}")
-            else:
-                ext = file_path.suffix.lower()
-                target = file_path.with_name(f"{new_stem}{ext}")
-                original_target = target
-                counter = 1
-                while target.exists():
-                    target = original_target.with_name(f"{new_stem}_{counter}{ext}")
-                    counter += 1
-
-                file_path.rename(target)
-                result["renamed_to"] = str(target)
-                ok(console, f"Renamed {file_path.name} -> {target.name}")
-
         results.append(result)
+        _save_identify_cache(cache_path, results)
+
+    if rename:
+        for file_path, result in zip(files, results):
+            if "error" not in result and file_path.exists():
+                _apply_rename(file_path, result)
+
+    _save_identify_cache(cache_path, results)
+    info(console, f"Updated cache at {cache_path} ({len(results)} result(s))")
 
     if json_output:
         if len(results) == 1:
@@ -768,27 +1053,22 @@ def identify(
 
 @app.command()
 def rename(
-    input_dir: Annotated[
-        Path,
-        typer.Option(
-            "--input-dir", "--folder", "-i", "-d", help="Directory containing files to rename."
-        ),
-    ],
+    input_dir: Annotated[Path, typer.Argument(help="Directory containing files to rename.")],
     remove_pattern: Annotated[
         Optional[str],
         typer.Option("--remove-pattern", "-p", help="Substring to remove from each filename."),
     ] = None,
     dry_run: Annotated[
-        bool, typer.Option("--dry-run", "-n", help="Preview renames without applying them.")
+        bool, typer.Option("--dry-run", help="Preview renames without applying them.")
     ] = False,
     recursive: Annotated[
         bool, typer.Option("--recursive", "-R", help="Rename files in subdirectories too.")
     ] = False,
-    normalize_special_chars: Annotated[
+    normalize: Annotated[
         bool,
         typer.Option(
-            "--normalize-special-chars",
-            "-nsc",
+            "--normalize",
+            "-n",
             help="Remove accents and Latin special characters from filenames.",
         ),
     ] = False,
@@ -806,7 +1086,7 @@ def rename(
             remove_pattern or "",
             dry_run=dry_run,
             recursive=recursive,
-            normalize=normalize_special_chars,
+            normalize=normalize,
         )
     except Exception as exc:
         _exit(str(exc))

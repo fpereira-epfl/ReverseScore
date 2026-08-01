@@ -6,7 +6,7 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, cast
+from typing import Callable, Literal, cast
 
 from ._console import format_duration, human_size
 from ._ffmpeg import (
@@ -94,7 +94,7 @@ def convert_audio(
     input_path: Path,
     output_path: Path | None,
     *,
-    output_format: OutputFormat = "aifc",
+    output_format: OutputFormat = "m4a",
     bitrate: str = "256k",
     normalize: bool = False,
     target_loudness_lufs: float = -18.0,
@@ -110,7 +110,7 @@ def convert_audio(
     Args:
         input_path: Source audio file.
         output_path: Explicit output path. If None, writes beside the input.
-        output_format: Target format.
+        output_format: Target format. Defaults to ``m4a`` (AAC in MP4 container).
         bitrate: Lossy bitrate, e.g. ``256k``.
         normalize: Apply constant-gain loudness normalization.
         target_loudness_lufs: Target integrated loudness in LUFS.
@@ -287,7 +287,7 @@ def convert_audio_files(
     input_path: Path,
     output_path: Path | None,
     *,
-    output_format: OutputFormat = "aifc",
+    output_format: OutputFormat = "m4a",
     bitrate: str = "256k",
     normalize: bool = False,
     target_loudness_lufs: float = -18.0,
@@ -298,6 +298,7 @@ def convert_audio_files(
     channels: int | None = None,
     overwrite: bool = False,
     extensions: frozenset[str] | None = None,
+    progress_callback: Callable[[Path, Path], None] | None = None,
 ) -> dict[str, ConversionResult]:
     """Convert one audio file or all audio files in a directory.
 
@@ -305,8 +306,10 @@ def convert_audio_files(
         input_path: Source audio file or directory.
         output_path: Destination file or directory. If None, outputs are written
             beside the input(s).
-        output_format: Target format.
+        output_format: Target format. Defaults to ``m4a`` (AAC in MP4 container).
         extensions: File extensions to include when scanning a directory.
+        progress_callback: Optional callback invoked before each file conversion
+            with ``(source_path, output_path)``.
 
     Returns:
         Mapping from original filename stem to conversion result.
@@ -347,6 +350,8 @@ def convert_audio_files(
     results: dict[str, ConversionResult] = {}
     for file in files:
         out_file = out_dir / f"{safe_stem_name(file.stem)}.{_FORMAT_SETTINGS[output_format][0]}"
+        if progress_callback is not None:
+            progress_callback(file, out_file)
         result = convert_audio(
             file,
             out_file,

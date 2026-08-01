@@ -205,7 +205,7 @@ def test_cli_identify_folder_rename(tmp_path: Path, mock_shazam: tuple) -> None:
         app,
         [
             "identify",
-            "--folder",
+            "--input-dir",
             str(tmp_path),
             "--pattern",
             "full_track_%%.m4a",
@@ -231,7 +231,7 @@ def test_cli_identify_folder_delay(tmp_path: Path, mock_shazam: tuple) -> None:
             app,
             [
                 "identify",
-                "--folder",
+                "--input-dir",
                 str(tmp_path),
                 "--pattern",
                 "full_track_%%.m4a",
@@ -247,7 +247,7 @@ def test_cli_identify_folder_delay(tmp_path: Path, mock_shazam: tuple) -> None:
 def test_cli_identify_folder_no_matches(tmp_path: Path, mock_shazam: tuple) -> None:
     result = runner.invoke(
         app,
-        ["identify", "--folder", str(tmp_path), "--pattern", "full_track_%%.m4a"],
+        ["identify", "--input-dir", str(tmp_path), "--pattern", "full_track_%%.m4a"],
     )
     assert result.exit_code == 1, result.output
     assert "No files matching" in result.output
@@ -257,6 +257,118 @@ def test_cli_identify_audio_and_folder_error(tmp_path: Path, mock_shazam: tuple)
     audio = tmp_path / "song.m4a"
     audio.write_text("fake audio")
 
-    result = runner.invoke(app, ["identify", str(audio), "--folder", str(tmp_path)])
+    result = runner.invoke(app, ["identify", str(audio), "--input-dir", str(tmp_path)])
     assert result.exit_code == 1, result.output
     assert "not both" in result.output
+
+
+def test_cli_identify_cache_persists_across_runs(tmp_path: Path, mock_shazam: tuple) -> None:
+    (tmp_path / "track_01.m4a").write_text("fake")
+    (tmp_path / "track_02.m4a").write_text("fake")
+
+    _, instance = mock_shazam
+    instance.recognize_song.reset_mock()
+
+    # First run: identify both files and create the cache.
+    result = runner.invoke(
+        app,
+        [
+            "identify",
+            "--input-dir",
+            str(tmp_path),
+            "--pattern",
+            "*.m4a",
+            "--use-cache",
+            "--delay",
+            "0",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert instance.recognize_song.call_count == 2
+    assert (tmp_path / "local_cache.json").is_file()
+
+    # Second run: cache should be reused, no extra recognition calls.
+    result = runner.invoke(
+        app,
+        [
+            "identify",
+            "--input-dir",
+            str(tmp_path),
+            "--pattern",
+            "*.m4a",
+            "--use-cache",
+            "--delay",
+            "0",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert instance.recognize_song.call_count == 2
+    assert "Skipping track_01.m4a (cached)" in result.output
+    assert "Skipping track_02.m4a (cached)" in result.output
+
+    # Add a third file and run again: only the new file should be identified,
+    # while the original two remain cached.
+    (tmp_path / "track_03.m4a").write_text("fake")
+    result = runner.invoke(
+        app,
+        [
+            "identify",
+            "--input-dir",
+            str(tmp_path),
+            "--pattern",
+            "*.m4a",
+            "--use-cache",
+            "--delay",
+            "0",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert instance.recognize_song.call_count == 3
+    assert "Skipping track_01.m4a (cached)" in result.output
+    assert "Skipping track_02.m4a (cached)" in result.output
+    assert "Identifying track_03.m4a" in result.output
+
+
+def test_cli_identify_always_writes_cache_even_without_flag(
+    tmp_path: Path, mock_shazam: tuple
+) -> None:
+    (tmp_path / "track_01.m4a").write_text("fake")
+
+    _, instance = mock_shazam
+    instance.recognize_song.reset_mock()
+
+    # Run without --use-cache: it should still create/update the cache.
+    result = runner.invoke(
+        app,
+        [
+            "identify",
+            "--input-dir",
+            str(tmp_path),
+            "--pattern",
+            "*.m4a",
+            "--delay",
+            "0",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert instance.recognize_song.call_count == 1
+    assert (tmp_path / "local_cache.json").is_file()
+
+    # Run again with --use-cache: the previously created cache should be used.
+    instance.recognize_song.reset_mock()
+    result = runner.invoke(
+        app,
+        [
+            "identify",
+            "--input-dir",
+            str(tmp_path),
+            "--pattern",
+            "*.m4a",
+            "--use-cache",
+            "--delay",
+            "0",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert instance.recognize_song.call_count == 0
+    assert "Skipping track_01.m4a (cached)" in result.output

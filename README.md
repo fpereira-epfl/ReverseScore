@@ -108,10 +108,10 @@ Key options:
 
 ### Convert audio files
 
-ASP can convert a single file or a whole directory. The output format is inferred from `--output` or `--format`, and defaults to AIFC:
+ASP can convert a single file or a whole directory. The output format is inferred from `--output` or `--format`, and defaults to M4A (AAC in an MP4 container):
 
 ```bash
-# Convert a single file to AIFC (default)
+# Convert a single file to M4A/AAC (default)
 asp convert data/m4a/angelica_BJBn5MICe4k.m4a
 
 # Convert to WAV
@@ -123,8 +123,8 @@ asp convert data/m4a/angelica_BJBn5MICe4k.m4a --format flac
 # Convert AIFF/AIFC to AAC/M4A
 asp convert recording.aifc --output recording.m4a
 
-# Batch-convert a directory to AIFC
-asp convert data/m4a --output ./data/aifc
+# Batch-convert a directory to M4A/AAC
+asp convert data/m4a --output ./data/m4a
 
 # Batch-convert a directory to WAV
 asp convert data/m4a --output ./data/wav --format wav
@@ -171,8 +171,8 @@ asp scan data/wav/angelica_bjbn5mice4k.wav
 # Convert between formats with optional normalization/denoise
 asp convert recording.aifc --output cleaned.m4a --normalize --denoise soft
 
-# Convert to AIFC (default)
-asp convert recording.wav --output recording.aifc
+# Convert to M4A/AAC (default)
+asp convert recording.wav --output recording.m4a
 
 # Trim edge silence
 asp trim recording.aifc --min-silence 1.0 --threshold -40dB

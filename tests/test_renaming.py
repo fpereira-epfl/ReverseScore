@@ -106,7 +106,7 @@ def test_cli_rename(tmp_path: Path) -> None:
 
     result = runner.invoke(
         app,
-        ["rename", "--folder", str(tmp_path), "--remove-pattern", "-y-su-orquesta-típica"],
+        ["rename", str(tmp_path), "--remove-pattern", "-y-su-orquesta-típica"],
     )
 
     assert result.exit_code == 0, result.output
@@ -123,7 +123,6 @@ def test_cli_rename_dry_run(tmp_path: Path) -> None:
         app,
         [
             "rename",
-            "--folder",
             str(tmp_path),
             "--remove-pattern",
             "-y-su-orquesta-típica",
@@ -176,11 +175,10 @@ def test_cli_rename_normalize_special_chars(tmp_path: Path) -> None:
         app,
         [
             "rename",
-            "--folder",
             str(tmp_path),
             "--remove-pattern",
             "-y-su-orquesta-típica",
-            "--normalize-special-chars",
+            "--normalize",
         ],
     )
 
@@ -195,11 +193,10 @@ def test_cli_rename_normalize_short_flag(tmp_path: Path) -> None:
         app,
         [
             "rename",
-            "--folder",
             str(tmp_path),
             "--remove-pattern",
             "-y-su-orquesta-típica",
-            "-nsc",
+            "-n",
         ],
     )
 
@@ -212,7 +209,7 @@ def test_cli_rename_normalize_only(tmp_path: Path) -> None:
 
     result = runner.invoke(
         app,
-        ["rename", "--folder", str(tmp_path), "-nsc"],
+        ["rename", str(tmp_path), "-n"],
     )
 
     assert result.exit_code == 0, result.output
@@ -227,7 +224,7 @@ def test_cli_rename_normalize_only_dry_run(tmp_path: Path) -> None:
 
     result = runner.invoke(
         app,
-        ["rename", "--folder", str(tmp_path), "-nsc", "-n"],
+        ["rename", str(tmp_path), "-n", "--dry-run"],
     )
 
     assert result.exit_code == 0, result.output
@@ -240,7 +237,7 @@ def test_cli_rename_no_pattern_no_normalize(tmp_path: Path) -> None:
 
     result = runner.invoke(
         app,
-        ["rename", "--folder", str(tmp_path)],
+        ["rename", str(tmp_path)],
     )
 
     assert result.exit_code == 1, result.output
