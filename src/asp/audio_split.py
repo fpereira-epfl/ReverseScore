@@ -30,6 +30,9 @@ class SplitResult:
 
     tracks: list[Track]
     output_paths: list[Path]
+    silences: list[dict[str, object]] | None = None
+    removed_silences: list[Silence] | None = None
+    added_silences: list[Silence] | None = None
 
 
 @dataclass(frozen=True)
@@ -37,6 +40,7 @@ class Silence:
     start: float
     end: float
     duration: float
+    source: str = "detected"
 
 
 @dataclass(frozen=True)
@@ -73,6 +77,50 @@ def _parse_time(value: str) -> float:
     return seconds
 
 
+def _build_silence_rows(
+    silences: Sequence[Silence],
+    candidates: Sequence[Silence],
+    content_start: float,
+    content_end: float,
+    min_track: float,
+    max_track: float,
+    padding: float,
+) -> list[dict[str, object]]:
+    """Build detail rows for each detected/refined silence."""
+    candidate_set = set(candidates)
+
+    def _is_problematic(index: int, silence: Silence) -> bool:
+        """Return True if an adjacent segment would violate min/max track length."""
+        prev_boundary = silences[index - 1].end if index > 0 else content_start
+        next_boundary = silences[index + 1].start if index < len(silences) - 1 else content_end
+        gaps = [
+            silence.start - prev_boundary,
+            next_boundary - silence.end,
+        ]
+        return any(not (min_track <= gap + 2 * padding <= max_track) for gap in gaps)
+
+    rows: list[dict[str, object]] = []
+    for index, silence in enumerate(silences):
+        is_candidate = silence in candidate_set
+        prev_boundary = content_start if index == 0 else silences[index - 1].end
+        next_boundary = content_end if index == len(silences) - 1 else silences[index + 1].start
+        track_before = max(0.0, silence.start - prev_boundary + 2 * padding)
+        track_after = max(0.0, next_boundary - silence.end + 2 * padding)
+        rows.append(
+            {
+                "start": silence.start,
+                "end": silence.end,
+                "duration": silence.duration,
+                "source": silence.source,
+                "is_candidate": is_candidate,
+                "is_problematic": is_candidate and _is_problematic(index, silence),
+                "track_before": track_before,
+                "track_after": track_after,
+            }
+        )
+    return rows
+
+
 def _silence_diagnostics(
     silences: Sequence[Silence],
     candidates: Sequence[Silence],
@@ -84,11 +132,18 @@ def _silence_diagnostics(
     content_start: float,
     content_end: float,
     total_duration: float,
+    removed: Sequence[Silence] | None = None,
+    added: Sequence[Silence] | None = None,
+    padding: float = 0.02,
 ) -> dict[str, object]:
     """Build a dictionary of human-readable split diagnostics."""
     boundaries_needed = track_count - 1
     usable_duration = content_end - content_start
     target = min(max(usable_duration / track_count, min_track), max_track)
+
+    silence_rows = _build_silence_rows(
+        silences, candidates, content_start, content_end, min_track, max_track, padding
+    )
 
     stats: dict[str, object] = {
         "total_duration": _format_time(total_duration),
@@ -100,9 +155,20 @@ def _silence_diagnostics(
         "target_track": _format_time(target),
         "threshold_db": threshold_db,
         "gap": gap,
+        "padding": padding,
         "total_silences": len(silences),
         "usable_candidates": len(candidates),
+        "silences": silence_rows,
     }
+
+    if removed:
+        stats["removed_silences"] = [
+            {"start": s.start, "end": s.end, "duration": s.duration} for s in removed
+        ]
+    if added:
+        stats["added_silences"] = [
+            {"start": s.start, "end": s.end, "duration": s.duration} for s in added
+        ]
 
     if candidates:
         durations = [s.duration for s in candidates]
@@ -178,7 +244,7 @@ def _format_time(seconds: float) -> str:
     whole_seconds, millis = divmod(remainder, 1000)
     if hours:
         return f"{hours:d}:{minutes:02d}:{whole_seconds:02d}.{millis:03d}"
-    return f"{minutes:d}:{whole_seconds:02d}.{millis:03d}"
+    return f"{minutes:02d}:{whole_seconds:02d}.{millis:03d}"
 
 
 def _identify_content_edges(
@@ -215,6 +281,58 @@ def _internal_candidates(
         and silence.end < content_end
         and silence.end > silence.start
     ]
+
+
+def _closest_silence_index(timestamp: float, silences: Sequence[Silence]) -> int:
+    """Return the index of the silence whose midpoint is closest to ``timestamp``."""
+    best_index = 0
+    best_distance = float("inf")
+    for index, silence in enumerate(silences):
+        midpoint = (silence.start + silence.end) / 2.0
+        distance = abs(midpoint - timestamp)
+        if distance < best_distance:
+            best_distance = distance
+            best_index = index
+    return best_index
+
+
+def _apply_silence_edits(
+    silences: Sequence[Silence],
+    remove_times: Sequence[float] | None = None,
+    add_times: Sequence[float] | None = None,
+    default_duration: float = 1.0,
+) -> tuple[list[Silence], list[Silence], list[Silence]]:
+    """Apply manual silence additions/removals and return the refined list.
+
+    Returns ``(refined, removed, added)``. removals are matched to the closest
+    detected silence by midpoint; additions are synthetic silences centred on
+    the requested timestamps and are skipped if a silence already covers them.
+    """
+    removed: list[Silence] = []
+    added: list[Silence] = []
+    refined = list(silences)
+
+    if remove_times:
+        indices_to_remove: set[int] = set()
+        for timestamp in remove_times:
+            if not refined:
+                break
+            idx = _closest_silence_index(timestamp, refined)
+            indices_to_remove.add(idx)
+        removed = [refined[i] for i in sorted(indices_to_remove)]
+        refined = [s for i, s in enumerate(refined) if i not in indices_to_remove]
+
+    if add_times:
+        for timestamp in add_times:
+            half = default_duration / 2.0
+            start = max(0.0, timestamp - half)
+            end = timestamp + half
+            if any(s.start <= timestamp <= s.end for s in refined):
+                continue
+            added.append(Silence(start=start, end=end, duration=end - start, source="added"))
+
+    refined = sorted(refined + added, key=lambda s: s.start)
+    return refined, removed, added
 
 
 def _boundary_track_duration(
@@ -588,6 +706,9 @@ def split_recording(
     dry_run: bool = False,
     hints: Sequence[float] | None = None,
     added_silence: int = 0,
+    diag: bool = False,
+    add_silence: Sequence[float] | None = None,
+    remove_silence: Sequence[float] | None = None,
 ) -> SplitResult:
     """Split a recording into tracks using silence detection and dynamic programming."""
     require_ffmpeg()
@@ -616,45 +737,63 @@ def split_recording(
     if min_track > max_track:
         raise FFmpegError("--min-track must not exceed --max-track")
 
+    # Allow a 5% tolerance on the user-supplied track-length window so slight
+    # boundary misplacements do not cause the split to fail.
+    effective_min_track = min_track * 0.95
+    effective_max_track = max_track * 1.05
+
     info = probe_audio(input_path)
-    absolute_minimum = track_count * min_track
+    absolute_minimum = track_count * effective_min_track
     if info.duration < absolute_minimum:
         raise FFmpegError(
             f"input duration {_format_time(info.duration)} is shorter than "
-            f"{track_count} × {_format_time(min_track)}"
+            f"{track_count} × {_format_time(effective_min_track)} (with 5% tolerance)"
         )
 
     raw_silences = detect_silences(input_path, gap=gap, threshold_db=threshold_db)
-    silences = [Silence(**region) for region in raw_silences]
+    detected_silences = [Silence(**region) for region in raw_silences]
 
-    content_start, content_end = _identify_content_edges(silences, info.duration, edge_guard)
-    candidates = _internal_candidates(silences, content_start, content_end)
+    # Apply manual silence additions/removals and rebuild the candidate set.
+    refined_silences, removed_silences, added_silences = _apply_silence_edits(
+        detected_silences,
+        remove_times=remove_silence,
+        add_times=add_silence,
+        default_duration=max(1.0, gap * 2),
+    )
+
+    content_start, content_end = _identify_content_edges(
+        refined_silences, info.duration, edge_guard
+    )
+    candidates = _internal_candidates(refined_silences, content_start, content_end)
 
     def _build_diagnostics(message: str) -> SplitError:
         return SplitError(
             message,
             diagnostics=_silence_diagnostics(
-                silences,
+                refined_silences,
                 candidates,
                 track_count,
-                min_track,
-                max_track,
+                effective_min_track,
+                effective_max_track,
                 gap,
                 threshold_db,
                 content_start,
                 content_end,
                 info.duration,
+                removed=removed_silences,
+                added=added_silences,
+                padding=padding,
             ),
         )
 
-    if not silences:
+    if not refined_silences:
         raise _build_diagnostics(
             "FFmpeg detected no silence regions; try a shorter gap or a less-negative threshold"
         )
 
     usable_duration = content_end - content_start
     target = target_track or usable_duration / track_count
-    target = min(max(target, min_track), max_track)
+    target = min(max(target, effective_min_track), effective_max_track)
 
     # Fast path: when the user supplies exactly the required number of boundary
     # hints, snap each hint to the closest detected silence and build tracks
@@ -662,7 +801,7 @@ def split_recording(
     boundaries_needed = track_count - 1
     if hints and len(hints) == boundaries_needed:
         sorted_hints = sorted(hints)
-        selected = [_snap_hint_to_silence(h, silences) for h in sorted_hints]
+        selected = [_snap_hint_to_silence(h, refined_silences) for h in sorted_hints]
         tracks = _build_tracks(selected, content_start, content_end, info.duration, padding)
     else:
         try:
@@ -672,8 +811,8 @@ def split_recording(
                 content_start,
                 content_end,
                 info.duration,
-                min_track,
-                max_track,
+                effective_min_track,
+                effective_max_track,
                 target,
                 padding,
                 hints=hints,
@@ -687,8 +826,28 @@ def split_recording(
             f"internal error: produced {len(tracks)} tracks for {track_count} requested"
         )
 
+    silence_rows = (
+        _build_silence_rows(
+            refined_silences,
+            candidates,
+            content_start,
+            content_end,
+            min_track,
+            max_track,
+            padding,
+        )
+        if diag
+        else None
+    )
+
     if dry_run:
-        return SplitResult(tracks=tracks, output_paths=[])
+        return SplitResult(
+            tracks=tracks,
+            output_paths=[],
+            silences=silence_rows,
+            removed_silences=removed_silences if diag else None,
+            added_silences=added_silences if diag else None,
+        )
 
     out_dir = output_dir.expanduser().resolve() if output_dir else input_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -740,4 +899,10 @@ def split_recording(
             path.unlink(missing_ok=True)
         raise
 
-    return SplitResult(tracks=tracks, output_paths=written)
+    return SplitResult(
+        tracks=tracks,
+        output_paths=written,
+        silences=silence_rows,
+        removed_silences=removed_silences if diag else None,
+        added_silences=added_silences if diag else None,
+    )

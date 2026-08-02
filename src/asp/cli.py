@@ -546,6 +546,29 @@ def split_cmd(
     overwrite: Annotated[
         bool, typer.Option("--overwrite", help="Replace existing output files.")
     ] = False,
+    diag: Annotated[
+        bool, typer.Option("--diag", help="Show detailed silence timings.")
+    ] = False,
+    add_silence: Annotated[
+        Optional[list[str]],
+        typer.Option(
+            "--add-silence",
+            help=(
+                "Add silence points at the given MM:SS or HH:MM:SS timestamps. "
+                "Repeat the flag or pass a quoted space-separated list."
+            ),
+        ),
+    ] = None,
+    remove_silence: Annotated[
+        Optional[list[str]],
+        typer.Option(
+            "--remove-silence",
+            help=(
+                "Remove the detected silence closest to each given MM:SS or "
+                "HH:MM:SS timestamp. Repeat the flag or pass a quoted list."
+            ),
+        ),
+    ] = None,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Detect and print boundaries without writing files."),
@@ -573,6 +596,10 @@ def split_cmd(
         max_seconds = _parse_time(max_track) if max_track else 0.0
         target_seconds = _parse_time(target_track) if target_track else None
         hint_seconds = [_parse_time(part) for token in hints or [] for part in token.split()]
+        add_seconds = [_parse_time(part) for token in add_silence or [] for part in token.split()]
+        remove_seconds = [
+            _parse_time(part) for token in remove_silence or [] for part in token.split()
+        ]
     except ValueError as exc:
         _exit(str(exc))
 
@@ -582,10 +609,18 @@ def split_cmd(
         info(console, f"Added silence mode: {added_silence}s")
     else:
         info(console, f"Requested tracks: {tracks}")
-        info(console, f"Allowed length: {fmt_time(min_seconds)}–{fmt_time(max_seconds)}")
+        info(
+            console,
+            f"Allowed length: {fmt_time(min_seconds)}–{fmt_time(max_seconds)} "
+            f"(effective {fmt_time(min_seconds * 0.95)}–{fmt_time(max_seconds * 1.05)} with 5% tolerance)",
+        )
         info(console, f"Detection: gap {gap:g}s, threshold {threshold}")
     if hint_seconds:
         info(console, f"Hints: {', '.join(fmt_time(h) for h in hint_seconds)}")
+    if add_seconds:
+        info(console, f"Add silences: {', '.join(fmt_time(h) for h in add_seconds)}")
+    if remove_seconds:
+        info(console, f"Remove silences: {', '.join(fmt_time(h) for h in remove_seconds)}")
 
     try:
         result = split_recording(
@@ -604,6 +639,9 @@ def split_cmd(
             dry_run=dry_run,
             hints=hint_seconds,
             added_silence=added_silence,
+            diag=diag,
+            add_silence=add_seconds,
+            remove_silence=remove_seconds,
         )
     except SplitError as exc:
         _print_split_diagnostics(console, exc)
@@ -621,6 +659,16 @@ def split_cmd(
             str(track.number), fmt_time(track.start), fmt_time(track.end), fmt_time(track.duration)
         )
     console.print(table)
+
+    if diag:
+        _print_silence_list(
+            console,
+            result.silences or [],
+            removed=[{"start": s.start, "end": s.end, "duration": s.duration}
+                     for s in (result.removed_silences or [])],
+            added=[{"start": s.start, "end": s.end, "duration": s.duration}
+                   for s in (result.added_silences or [])],
+        )
 
     if dry_run:
         info(console, "Dry run complete; no files were written.")
@@ -687,7 +735,7 @@ def tempo_cmd(
     input: Annotated[Path, typer.Argument(help="Source audio file.")],
     output: Annotated[
         Optional[Path],
-        typer.Option("--output-file", "-o", help="Output path. Defaults to INPUT_{factor}x.EXT."),
+        typer.Option("--output", "-o", help="Output path. Defaults to INPUT_{factor}x.EXT."),
     ] = None,
     factor: Annotated[
         float,
@@ -722,10 +770,10 @@ def tempo_cmd(
     ok(console, f"Tempo changed to {factor:g}x")
 
 
-def _default_identify_cache_path(files: list[Path], input_dir: Path | None) -> Path:
+def _default_identify_cache_path(files: list[Path], input_path: Path) -> Path:
     """Return the default cache path for identify results."""
-    if input_dir is not None:
-        return input_dir / "local_cache.json"
+    if input_path.is_dir():
+        return input_path / "local_cache.json"
     if files:
         return files[0].parent / "local_cache.json"
     return Path("local_cache.json")
@@ -899,26 +947,133 @@ def _print_split_diagnostics(console: Console, exc: SplitError) -> None:
             if isinstance(recommendation, str):
                 info(console, f"• {recommendation}")
 
+    _print_silence_list(
+        console,
+        cast(list[dict[str, object]] | None, diagnostics.get("silences")),
+        removed=cast(list[dict[str, object]] | None, diagnostics.get("removed_silences")),
+        added=cast(list[dict[str, object]] | None, diagnostics.get("added_silences")),
+    )
+
+
+def _print_silence_list(
+    console: Console,
+    silences: list[dict[str, object]] | None,
+    *,
+    removed: list[dict[str, object]] | None = None,
+    added: list[dict[str, object]] | None = None,
+) -> None:
+    """Print a detailed list of silences when --diag is active."""
+    if not silences and not removed and not added:
+        return
+
+    section(console, "Silence details", "🔍")
+    if removed:
+        removed_table = Table(
+            title="Removed silences",
+            caption="Times are MM:SS.ms (or HH:MM:SS.ms over an hour).",
+        )
+        removed_table.add_column("Start (MM:SS.ms)", style="cyan")
+        removed_table.add_column("End (MM:SS.ms)", style="magenta")
+        removed_table.add_column("Duration (s)", style="green")
+        for item in removed:
+            if isinstance(item, dict):
+                removed_table.add_row(
+                    _format_diag_time(item.get("start")),
+                    _format_diag_time(item.get("end")),
+                    _format_diag_duration(item.get("duration")),
+                )
+        console.print(removed_table)
+
+    if added:
+        added_table = Table(
+            title="Added silences",
+            caption="Times are MM:SS.ms (or HH:MM:SS.ms over an hour).",
+        )
+        added_table.add_column("Start (MM:SS.ms)", style="cyan")
+        added_table.add_column("End (MM:SS.ms)", style="magenta")
+        added_table.add_column("Duration (s)", style="green")
+        for item in added:
+            if isinstance(item, dict):
+                added_table.add_row(
+                    _format_diag_time(item.get("start")),
+                    _format_diag_time(item.get("end")),
+                    _format_diag_duration(item.get("duration")),
+                )
+        console.print(added_table)
+
+    if silences:
+        table = Table(
+            title="Refined silence list",
+            caption="Times are MM:SS.ms (or HH:MM:SS.ms over an hour). "
+            "'Track duration' is the estimated length of the track following each silence.",
+        )
+        table.add_column("Status", style="red", justify="center")
+        table.add_column("#", style="cyan")
+        table.add_column("Start (MM:SS.ms)", style="magenta")
+        table.add_column("End (MM:SS.ms)", style="magenta")
+        table.add_column("Silence duration (s)", style="green")
+        table.add_column("Adjacent tracks", style="blue")
+        table.add_column("Track duration (MM:SS.ms)", style="bright_cyan")
+        table.add_column("Source", style="yellow")
+        for index, item in enumerate(silences, start=1):
+            if isinstance(item, dict):
+                is_candidate = item.get("is_candidate", True)
+                is_problematic = item.get("is_problematic", False)
+                if not is_candidate:
+                    status = "—"
+                elif is_problematic:
+                    status = "⚠️"
+                else:
+                    status = "✓"
+                if is_candidate:
+                    before = _format_diag_time(item.get("track_before"))
+                    after = _format_diag_time(item.get("track_after"))
+                    adjacent = f"{before} → {after}"
+                    track_duration = _format_diag_time(item.get("track_after"))
+                else:
+                    adjacent = "—"
+                    track_duration = "—"
+                table.add_row(
+                    status,
+                    str(index),
+                    _format_diag_time(item.get("start")),
+                    _format_diag_time(item.get("end")),
+                    _format_diag_duration(item.get("duration")),
+                    adjacent,
+                    track_duration,
+                    str(item.get("source", "detected")),
+                )
+        console.print(table)
+
+
+def _format_diag_time(value: object) -> str:
+    """Format a numeric seconds value for diagnostic tables."""
+    from .audio_split import _format_time
+
+    if isinstance(value, (int, float)):
+        return _format_time(float(value))
+    return str(value)
+
+
+def _format_diag_duration(value: object) -> str:
+    """Format a duration in seconds for diagnostic tables."""
+    if isinstance(value, (int, float)):
+        return f"{float(value):.3f}"
+    return str(value)
+
 
 @app.command()
 def identify(
-    audio: Annotated[
-        Optional[Path], typer.Argument(help="Path to a single input audio file (aifc, m4a, etc.).")
-    ] = None,
-    input_dir: Annotated[
-        Optional[Path],
-        typer.Option(
-            "--input-dir",
-            "-d",
-            help="Directory containing audio files to identify.",
-        ),
-    ] = None,
+    input: Annotated[
+        Path,
+        typer.Argument(help="Path to a single audio file or a directory containing audio files."),
+    ],
     pattern: Annotated[
         str,
         typer.Option(
             "--pattern",
             "-p",
-            help="Pattern to match inside --input-dir. Use %% as a digit wildcard.",
+            help="Pattern to match when INPUT is a directory. Use %% as a digit wildcard.",
         ),
     ] = "*.aifc",
     json_output: Annotated[
@@ -946,27 +1101,18 @@ def identify(
     """Identify the artist and song title using ShazamIO."""
     from .recognition import find_matching_files, recognize_song
 
-    if audio is not None and input_dir is not None:
-        _exit("Specify either an audio file or --input-dir, not both.")
-
-    resolved_input_dir: Path | None = None
+    input = input.expanduser().resolve()
     files: list[Path] = []
-    if input_dir is not None:
-        resolved_input_dir = input_dir.expanduser().resolve()
-        if not resolved_input_dir.is_dir():
-            _exit(f"Directory not found: {resolved_input_dir}")
-        files = find_matching_files(resolved_input_dir, pattern)
+    if input.is_dir():
+        files = find_matching_files(input, pattern)
         if not files:
-            _exit(f"No files matching '{pattern}' found in {resolved_input_dir}")
-    elif audio is not None:
-        audio = audio.expanduser().resolve()
-        if not audio.is_file():
-            _exit(f"Audio file not found: {audio}")
-        files = [audio]
+            _exit(f"No files matching '{pattern}' found in {input}")
+    elif input.is_file():
+        files = [input]
     else:
-        _exit("Specify an audio file or --input-dir.")
+        _exit(f"Input not found: {input}")
 
-    cache_path = _default_identify_cache_path(files, resolved_input_dir)
+    cache_path = _default_identify_cache_path(files, input)
 
     section(console, "Identifying music", "🎤")
     info(console, f"Files to identify: {len(files)}")
@@ -1058,9 +1204,6 @@ def rename(
         Optional[str],
         typer.Option("--remove-pattern", "-p", help="Substring to remove from each filename."),
     ] = None,
-    dry_run: Annotated[
-        bool, typer.Option("--dry-run", help="Preview renames without applying them.")
-    ] = False,
     recursive: Annotated[
         bool, typer.Option("--recursive", "-R", help="Rename files in subdirectories too.")
     ] = False,
@@ -1071,6 +1214,9 @@ def rename(
             "-n",
             help="Remove accents and Latin special characters from filenames.",
         ),
+    ] = False,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Preview renames without applying them.")
     ] = False,
 ) -> None:
     """Remove a substring from and/or normalize all filenames in a folder."""

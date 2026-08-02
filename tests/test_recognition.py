@@ -205,7 +205,6 @@ def test_cli_identify_folder_rename(tmp_path: Path, mock_shazam: tuple) -> None:
         app,
         [
             "identify",
-            "--input-dir",
             str(tmp_path),
             "--pattern",
             "full_track_%%.m4a",
@@ -231,7 +230,6 @@ def test_cli_identify_folder_delay(tmp_path: Path, mock_shazam: tuple) -> None:
             app,
             [
                 "identify",
-                "--input-dir",
                 str(tmp_path),
                 "--pattern",
                 "full_track_%%.m4a",
@@ -247,19 +245,10 @@ def test_cli_identify_folder_delay(tmp_path: Path, mock_shazam: tuple) -> None:
 def test_cli_identify_folder_no_matches(tmp_path: Path, mock_shazam: tuple) -> None:
     result = runner.invoke(
         app,
-        ["identify", "--input-dir", str(tmp_path), "--pattern", "full_track_%%.m4a"],
+        ["identify", str(tmp_path), "--pattern", "full_track_%%.m4a"],
     )
     assert result.exit_code == 1, result.output
     assert "No files matching" in result.output
-
-
-def test_cli_identify_audio_and_folder_error(tmp_path: Path, mock_shazam: tuple) -> None:
-    audio = tmp_path / "song.m4a"
-    audio.write_text("fake audio")
-
-    result = runner.invoke(app, ["identify", str(audio), "--input-dir", str(tmp_path)])
-    assert result.exit_code == 1, result.output
-    assert "not both" in result.output
 
 
 def test_cli_identify_cache_persists_across_runs(tmp_path: Path, mock_shazam: tuple) -> None:
@@ -274,7 +263,6 @@ def test_cli_identify_cache_persists_across_runs(tmp_path: Path, mock_shazam: tu
         app,
         [
             "identify",
-            "--input-dir",
             str(tmp_path),
             "--pattern",
             "*.m4a",
@@ -292,7 +280,6 @@ def test_cli_identify_cache_persists_across_runs(tmp_path: Path, mock_shazam: tu
         app,
         [
             "identify",
-            "--input-dir",
             str(tmp_path),
             "--pattern",
             "*.m4a",
@@ -313,7 +300,6 @@ def test_cli_identify_cache_persists_across_runs(tmp_path: Path, mock_shazam: tu
         app,
         [
             "identify",
-            "--input-dir",
             str(tmp_path),
             "--pattern",
             "*.m4a",
@@ -342,7 +328,6 @@ def test_cli_identify_always_writes_cache_even_without_flag(
         app,
         [
             "identify",
-            "--input-dir",
             str(tmp_path),
             "--pattern",
             "*.m4a",
@@ -360,7 +345,6 @@ def test_cli_identify_always_writes_cache_even_without_flag(
         app,
         [
             "identify",
-            "--input-dir",
             str(tmp_path),
             "--pattern",
             "*.m4a",
